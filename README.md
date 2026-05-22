@@ -1,13 +1,13 @@
 <div align="center">
   <h1>@cyanheads/fred-mcp-server</h1>
   <p><b>MCP server for the FRED API — search and fetch ~800K Federal Reserve economic time-series. STDIO or Streamable HTTP.</b>
-  <div>5 Tools</div>
+  <div>8 Tools</div>
   </p>
 </div>
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/@cyanheads/fred-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/fred-mcp-server) [![Version](https://img.shields.io/badge/Version-0.1.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
+[![npm](https://img.shields.io/npm/v/@cyanheads/fred-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/fred-mcp-server) [![Version](https://img.shields.io/badge/Version-0.1.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
@@ -17,7 +17,7 @@
 
 ## Tools
 
-Five tools covering the FRED API — resolve topics to series IDs, pull observations, inspect releases, and navigate the category tree:
+Five FRED tools plus three DataCanvas tools for querying spilled observation results via SQL:
 
 | Tool | Description |
 |:-----|:------------|
@@ -26,6 +26,9 @@ Five tools covering the FRED API — resolve topics to series IDs, pull observat
 | `fred_get_observations` | Fetch date+value observation data for one or more series with date-range filtering and unit transformations |
 | `fred_browse_categories` | Navigate the FRED category tree; drill into a category to see child categories and a series sample |
 | `fred_get_release` | Look up a FRED release by ID or name search — returns release metadata and its associated series list |
+| `fred_dataframe_describe` | List active DataCanvas dataframes registered by this server (canvas IDs, row counts, schemas) |
+| `fred_dataframe_query` | Run a SELECT query against a registered DataCanvas dataframe |
+| `fred_dataframe_drop` | Drop a DataCanvas dataframe by canvas ID (configurable via `FRED_DATAFRAME_DROP` env var) |
 
 ### `fred_search_series`
 

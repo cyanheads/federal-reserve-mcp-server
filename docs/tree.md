@@ -1,6 +1,6 @@
 # fred-mcp-server - Directory Structure
 
-Generated on: 2026-05-22 03:31:28
+Generated on: 2026-05-22 06:40:25
 
 ```text
 fred-mcp-server/
@@ -28,6 +28,7 @@ fred-mcp-server/
 │   ├── clean.ts
 │   ├── devcheck.ts
 │   ├── lint-mcp.ts
+│   ├── list-skills.ts
 │   ├── split-changelog.ts
 │   └── tree.ts
 ├── skills/
@@ -101,6 +102,8 @@ fred-mcp-server/
 │   └── tool-defs-analysis/
 │       └── SKILL.md
 ├── src/
+│   ├── config/
+│   │   └── server-config.ts
 │   ├── mcp-server/
 │   │   ├── prompts/
 │   │   │   └── definitions/
@@ -108,22 +111,51 @@ fred-mcp-server/
 │   │   │   └── definitions/
 │   │   └── tools/
 │   │       └── definitions/
-│   │           └── echo.tool.ts
+│   │           ├── fred-browse-categories.tool.ts
+│   │           ├── fred-dataframe-describe.tool.ts
+│   │           ├── fred-dataframe-drop.tool.ts
+│   │           ├── fred-dataframe-query.tool.ts
+│   │           ├── fred-get-observations.tool.ts
+│   │           ├── fred-get-release.tool.ts
+│   │           ├── fred-get-series.tool.ts
+│   │           ├── fred-search-series.tool.ts
+│   │           └── index.ts
+│   ├── services/
+│   │   ├── canvas-bridge/
+│   │   │   ├── canvas-bridge.ts
+│   │   │   └── sql-gate-extras.ts
+│   │   └── fred/
+│   │       ├── fred-service.ts
+│   │       └── types.ts
 │   └── index.ts
 ├── tests/
 │   ├── prompts/
 │   ├── resources/
+│   ├── services/
+│   │   ├── canvas-bridge/
+│   │   │   └── sql-gate-extras.test.ts
+│   │   └── fred/
+│   │       └── fred-service.test.ts
 │   └── tools/
-│       └── echo.tool.test.ts
+│       ├── fred-browse-categories.tool.test.ts
+│       ├── fred-dataframe-describe.tool.test.ts
+│       ├── fred-dataframe-drop.tool.test.ts
+│       ├── fred-dataframe-query.tool.test.ts
+│       ├── fred-get-observations.tool.test.ts
+│       ├── fred-get-release.tool.test.ts
+│       ├── fred-get-series.tool.test.ts
+│       └── fred-search-series.tool.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
 ├── biome.json
 ├── bun.lock
+├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
 ├── package.json
+├── README.md
 ├── server.json
 ├── tsconfig.build.json
 ├── tsconfig.json
