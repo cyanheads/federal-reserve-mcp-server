@@ -1,6 +1,6 @@
-# Developer Protocol
+# Agent Protocol
 
-**Server:** fred-mcp-server
+**Server:** @cyanheads/fred-mcp-server
 **Version:** 0.1.0
 **Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.9.1`
 **Engines:** Bun ≥1.3.0, Node ≥24.0.0
@@ -11,22 +11,9 @@
 
 ---
 
-## First Session
-
-This project was just scaffolded with `bunx @cyanheads/mcp-ts-core init`. The framework, skills, and example definitions are in place — the domain isn't. The user's first messages will set direction; wait for them before proceeding.
-
-> **Remove this section** from CLAUDE.md / AGENTS.md after completing these steps. The skills and conventions below remain — this block is one-time onboarding only.
-
-1. **Get your bearings.** Take stock of the project tree, the skills in `skills/`, and the tools/MCP servers available. Light tool use is fine for context-building — you're mapping the territory, not committing yet.
-2. **Read the framework docs** — `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` (builders, Context, errors, exports, conventions)
-3. **Run the `setup` skill** — read `skills/setup/SKILL.md` and follow its checklist (project orientation, agent protocol file selection, echo definition cleanup, skill sync)
-4. **Design the server** — read `skills/design-mcp-server/SKILL.md` and work through it with the user to map the domain into tools, resources, and services before scaffolding
-
----
-
 ## What's Next?
 
-When the user asks what's next or needs direction, suggest options based on the current project state. Common next steps:
+When the user asks what to do next, what's left, or needs direction, suggest relevant options based on the current project state:
 
 1. **Re-run the `setup` skill** — ensures CLAUDE.md, skills, structure, and metadata are populated and up to date with the current codebase
 2. **Run the `design-mcp-server` skill** — if the tool/resource surface hasn't been mapped yet, work through domain design
@@ -40,6 +27,29 @@ When the user asks what's next or needs direction, suggest options based on the 
 10. **Run the `maintenance` skill** — investigate changelogs, adopt upstream changes, and sync skills after `bun update --latest`
 
 Tailor suggestions to what's actually missing or stale — don't recite the full list every time.
+
+---
+
+## Domain
+
+This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Federal Reserve Bank of St. Louis). ~800K economic time-series covering output, prices, employment, money, rates, housing, trade, regional indicators, and international macro.
+
+**Planned tool surface** (see `docs/design.md` for full spec):
+
+| Tool | Description |
+|:-----|:------------|
+| `fred_search_series` | Full-text search across FRED series titles, units, frequency, and tags |
+| `fred_get_series` | Fetch metadata for one or more series (up to 50 IDs, parallel upstream requests) |
+| `fred_get_observations` | Fetch date+value observations with date-range, unit transforms, and DataCanvas spillover |
+| `fred_browse_categories` | Navigate the FRED category tree |
+| `fred_get_release` | Inspect a release by ID or name search |
+
+**Key API facts:**
+- Auth: `FRED_API_KEY` env var (free key from stlouisfed.org)
+- Rate limit: 120 req/min per key
+- No batch endpoints — parallel requests via `Promise.allSettled`
+- Observations are date+value pairs; values are strings (preserves trailing zeros)
+- ALFRED vintages deferred to v1+
 
 ---
 
@@ -59,71 +69,47 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { getFredApiService } from '@/services/fred/fred-service.js';
 
-export const searchItems = tool('search_items', {
-  description: 'Search inventory items by query.',
-  annotations: { readOnlyHint: true },
+export const fredSearchSeriesToolDef = tool('fred_search_series', {
+  description: 'Search FRED series by full-text query across titles, tags, and notes.',
+  annotations: { readOnlyHint: true, openWorldHint: true },
+
   input: z.object({
     query: z.string().describe('Search terms'),
-    limit: z.number().default(10).describe('Max results'),
+    search_type: z.enum(['full_text', 'series_id']).optional()
+      .describe('Search mode — full_text (default) or series_id'),
+    filter_variable: z.enum(['frequency', 'units', 'seasonal_adjustment']).optional()
+      .describe('Post-search filter dimension'),
+    filter_value: z.string().optional().describe('Value for filter_variable'),
+    tag_names: z.string().optional().describe('Semicolon-delimited list of tag names to filter by'),
+    limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 1000)'),
+    offset: z.number().int().min(0).optional().describe('Pagination offset'),
   }),
+
   output: z.object({
-    items: z.array(z.object({
-      id: z.string().describe('Item ID'),
-      name: z.string().describe('Item name'),
-    })).describe('Matching items'),
+    count: z.number().describe('Total matching series count'),
+    series: z.array(z.object({
+      id: z.string().describe('FRED series ID (e.g., UNRATE)'),
+      title: z.string().describe('Series title'),
+      units: z.string().describe('Units of measurement'),
+      frequency: z.string().describe('Data frequency'),
+      last_updated: z.string().describe('ISO 8601 date of last update'),
+    })).describe('Matching series'),
   }),
-  auth: ['inventory:read'],
 
   async handler(input, ctx) {
-    const items = await findItems(input.query, input.limit);
-    ctx.log.info('Search completed', { query: input.query, count: items.length });
-    return { items };
+    ctx.log.info('Executing fred_search_series', { query: input.query });
+    const result = await getFredApiService().searchSeries(input);
+    return result;
   },
 
-  // format() populates content[] — the markdown twin of structuredContent.
-  // Different clients read different surfaces (Claude Code → structuredContent,
-  // Claude Desktop → content[]); both must carry the same data.
-  // Enforced at lint time: every field in `output` must appear in the rendered text.
   format: (result) => [{
     type: 'text',
-    text: result.items.map(i => `**${i.id}**: ${i.name}`).join('\n'),
+    text: result.series.map(s =>
+      `**${s.id}**: ${s.title} (${s.units}, ${s.frequency}, updated ${s.last_updated})`
+    ).join('\n'),
   }],
-});
-```
-
-### Resource
-
-```ts
-import { resource, z } from '@cyanheads/mcp-ts-core';
-import { notFound } from '@cyanheads/mcp-ts-core/errors';
-
-export const itemData = resource('inventory://{itemId}', {
-  description: 'Fetch an inventory item by ID.',
-  params: z.object({ itemId: z.string().describe('Item identifier') }),
-  auth: ['inventory:read'],
-  async handler(params, ctx) {
-    const item = await ctx.state.get(`item:${params.itemId}`);
-    if (!item) throw notFound(`Item ${params.itemId} not found`, { itemId: params.itemId });
-    return item;
-  },
-});
-```
-
-### Prompt
-
-```ts
-import { prompt, z } from '@cyanheads/mcp-ts-core';
-
-export const reviewCode = prompt('review_code', {
-  description: 'Review code for issues and best practices.',
-  args: z.object({
-    code: z.string().describe('Code to review'),
-    language: z.string().optional().describe('Programming language'),
-  }),
-  generate: (args) => [
-    { role: 'user', content: { type: 'text', text: `Review this ${args.language ?? ''} code:\n${args.code}` } },
-  ],
 });
 ```
 
@@ -135,21 +121,21 @@ import { z } from '@cyanheads/mcp-ts-core';
 import { parseEnvConfig } from '@cyanheads/mcp-ts-core/config';
 
 const ServerConfigSchema = z.object({
-  apiKey: z.string().describe('External API key'),
-  maxResults: z.coerce.number().default(100),
+  apiKey: z.string().describe('FRED API key'),
+  baseUrl: z.string().url().default('https://api.stlouisfed.org/fred').describe('FRED API base URL'),
 });
 
 let _config: z.infer<typeof ServerConfigSchema> | undefined;
-export function getServerConfig() {
+export function getServerConfig(): z.infer<typeof ServerConfigSchema> {
   _config ??= parseEnvConfig(ServerConfigSchema, {
-    apiKey: 'MY_API_KEY',
-    maxResults: 'MY_MAX_RESULTS',
+    apiKey: 'FRED_API_KEY',
+    baseUrl: 'FRED_BASE_URL',
   });
   return _config;
 }
 ```
 
-`parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`MY_API_KEY`) not the path (`apiKey`). Throws `ConfigurationError`, which the framework prints as a clean startup banner.
+`parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`FRED_API_KEY`) not the path (`apiKey`). Throws `ConfigurationError`, which the framework prints as a clean startup banner.
 
 ---
 
@@ -161,12 +147,9 @@ Handlers receive a unified `ctx` object. Key properties:
 |:---------|:------------|
 | `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. |
 | `ctx.state` | Tenant-scoped KV — `.get(key)`, `.set(key, value, { ttl? })`, `.delete(key)`, `.list(prefix, { cursor, limit })`. Accepts any serializable value. |
-| `ctx.elicit` | Ask user for structured input. **Check for presence first:** `if (ctx.elicit) { ... }` |
-| `ctx.sample` | Request LLM completion from the client. **Check for presence first:** `if (ctx.sample) { ... }` |
 | `ctx.signal` | `AbortSignal` for cancellation. |
-| `ctx.progress` | Task progress (present when `task: true`) — `.setTotal(n)`, `.increment()`, `.update(message)`. |
 | `ctx.requestId` | Unique request ID. |
-| `ctx.tenantId` | Tenant ID from JWT or `'default'` for stdio. |
+| `ctx.tenantId` | Tenant ID from JWT, `'default'` for stdio or HTTP+`MCP_AUTH_MODE=none`. |
 
 ---
 
@@ -174,38 +157,31 @@ Handlers receive a unified `ctx` object. Key properties:
 
 Handlers throw — the framework catches, classifies, and formats.
 
-**Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable? }]` on `tool()` / `resource()` to receive `ctx.fail(reason, …)` typed against the reason union. TypeScript catches typos at compile time, `data.reason` is auto-populated for observability, linter enforces conformance against the handler body. `recovery` is required descriptive metadata for the agent's next move (≥ 5 words, lint-validated); for the wire `data.recovery.hint` (mirrored into `content[]` text), pass explicitly at the throw site when dynamic context matters: `ctx.fail('reason', msg, { recovery: { hint: '...' } })`. Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`) bubble freely and don't need declaring.
+**Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable? }]` on `tool()` to receive `ctx.fail(reason, …)` typed against the reason union. TypeScript catches typos at compile time, `data.reason` is auto-populated for observability, and the linter enforces conformance. The `recovery` field is required (≥ 5 words, lint-validated). Spread `ctx.recoveryFor('reason')` into `data` to mirror the contract hint onto the wire. Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`) bubble freely and don't need declaring.
 
 ```ts
 errors: [
-  { reason: 'no_match', code: JsonRpcErrorCode.NotFound,
-    when: 'No item matched the query',
-    recovery: 'Broaden the query or check the spelling and try again.' },
+  { reason: 'series_not_found', code: JsonRpcErrorCode.NotFound,
+    when: 'Series ID exists in format but FRED returns no data',
+    recovery: 'Verify the series ID with fred_search_series and try again.' },
 ],
 async handler(input, ctx) {
-  const item = await db.find(input.id);
-  if (!item) throw ctx.fail('no_match', `No item ${input.id}`);
-  return item;
+  const series = await getFredApiService().getSeries(input.series_id);
+  if (!series) {
+    throw ctx.fail('series_not_found', `Series ${input.series_id} not found`, {
+      ...ctx.recoveryFor('series_not_found'),
+    });
+  }
+  return series;
 }
 ```
 
-**Declare contracts inline on each tool.** The contract is part of the tool's public surface — one file should give the full picture. Don't extract a shared `errors[]` constant; per-tool repetition is the intended cost of locality.
-
-**Fallback (no contract entry fits):** throw via factories or plain `Error`.
+**Fallback (no contract entry fits):** error factories or plain `Error`.
 
 ```ts
-// Error factories — explicit code
 import { notFound, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
-throw notFound('Item not found', { itemId });
-throw serviceUnavailable('API unavailable', { url }, { cause: err });
-
-// Plain Error — framework auto-classifies from message patterns
-throw new Error('Item not found');           // → NotFound
-throw new Error('Invalid query format');     // → ValidationError
-
-// McpError — when no factory exists for the code
-import { McpError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-throw new McpError(JsonRpcErrorCode.DatabaseError, 'Connection failed', { pool: 'primary' });
+throw notFound('Series not found', { seriesId });
+throw serviceUnavailable('FRED API unavailable', { url }, { cause: err });
 ```
 
 See framework CLAUDE.md and the `api-errors` skill for the full auto-classification table, all available factories, and the contract reference.
@@ -218,18 +194,18 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 src/
   index.ts                              # createApp() entry point
   config/
-    server-config.ts                    # Server-specific env vars (Zod schema)
+    server-config.ts                    # FRED-specific env vars (Zod schema)
   services/
-    [domain]/
-      [domain]-service.ts               # Domain service (init/accessor pattern)
-      types.ts                          # Domain types
+    fred/
+      fred-service.ts                   # FredApiService (init/accessor pattern)
+      types.ts                          # FRED domain types
   mcp-server/
     tools/definitions/
-      [tool-name].tool.ts               # Tool definitions
-    resources/definitions/
-      [resource-name].resource.ts       # Resource definitions
-    prompts/definitions/
-      [prompt-name].prompt.ts           # Prompt definitions
+      fred-search-series.tool.ts        # fred_search_series
+      fred-get-series.tool.ts           # fred_get_series
+      fred-get-observations.tool.ts     # fred_get_observations
+      fred-browse-categories.tool.ts    # fred_browse_categories
+      fred-get-release.tool.ts          # fred_get_release
 ```
 
 ---
@@ -238,10 +214,10 @@ src/
 
 | What | Convention | Example |
 |:-----|:-----------|:--------|
-| Files | kebab-case with suffix | `search-docs.tool.ts` |
-| Tool/resource/prompt names | snake_case | `search_docs` |
-| Directories | kebab-case | `src/services/doc-search/` |
-| Descriptions | Single string or template literal, no `+` concatenation | `'Search items by query and filter.'` |
+| Files | kebab-case with suffix | `fred-get-series.tool.ts` |
+| Tool/resource/prompt names | snake_case | `fred_get_series` |
+| Directories | kebab-case | `src/services/fred/` |
+| Descriptions | Single string or template literal, no `+` concatenation | `'Fetch metadata for one or more FRED series.'` |
 
 ---
 
@@ -267,7 +243,7 @@ Available skills:
 | `security-pass` | Audit server for MCP-flavored security gaps: output injection, scope blast radius, input sinks, tenant isolation |
 | `devcheck` | Lint, format, typecheck, audit |
 | `polish-docs-meta` | Finalize docs, README, metadata, and agent protocol for shipping |
-| `maintenance` | Investigate changelogs, adopt upstream changes, sync skills to agent dirs |
+| `maintenance` | Investigate changelogs, adopt upstream changes, and sync skills after `bun update --latest` |
 | `report-issue-framework` | File a bug or feature request against `@cyanheads/mcp-ts-core` via `gh` CLI |
 | `report-issue-local` | File a bug or feature request against this server's own repo via `gh` CLI |
 | `api-auth` | Auth modes, scopes, JWT/OAuth |
@@ -281,50 +257,33 @@ Available skills:
 | `api-telemetry` | OTel catalog: spans, metrics, completion logs, env config, cardinality rules |
 | `api-workers` | Cloudflare Workers runtime |
 
-When you complete a skill's checklist, check the boxes and add a completion timestamp at the end (e.g., `Completed: 2026-03-11`).
+When you complete a skill's checklist, check the boxes and add a completion timestamp at the end (e.g., `Completed: 2026-05-21`).
 
 ---
 
 ## Commands
 
-**Runtime:** Scripts use `tsx` — both `npm run <cmd>` and `bun run <cmd>` work. `bun` is slightly faster for script invocation but not required.
-
 | Command | Purpose |
 |:--------|:--------|
-| `npm run build` | Compile TypeScript |
-| `npm run rebuild` | Clean + build |
-| `npm run clean` | Remove build artifacts |
-| `npm run devcheck` | Lint + format + typecheck + security + changelog sync |
-| `npm run tree` | Generate directory structure doc |
-| `npm run format` | Auto-fix formatting |
-| `npm test` | Run tests |
-| `npm run start:stdio` | Production mode (stdio) |
-| `npm run start:http` | Production mode (HTTP) |
-| `npm run changelog:build` | Regenerate `CHANGELOG.md` from `changelog/*.md` |
-| `npm run changelog:check` | Verify `CHANGELOG.md` is in sync (used by devcheck) |
+| `bun run build` | Compile TypeScript |
+| `bun run rebuild` | Clean + build |
+| `bun run clean` | Remove build artifacts |
+| `bun run devcheck` | Lint + format + typecheck + security + changelog sync |
+| `bun run tree` | Generate directory structure doc |
+| `bun run format` | Auto-fix formatting |
+| `bun run test` | Run tests |
+| `bun run lint:mcp` | Validate MCP definitions against spec |
+| `bun run start:stdio` | Production mode (stdio) |
+| `bun run start:http` | Production mode (HTTP) |
+| `bun run changelog:build` | Regenerate `CHANGELOG.md` from `changelog/*.md` |
+| `bun run changelog:check` | Verify `CHANGELOG.md` is in sync (used by devcheck) |
+| `bun run list-skills` | List available project skills (useful for sub-agents) |
 
 ---
 
 ## Changelog
 
-Directory-based, grouped by minor series via the `.x` semver-wildcard convention. Source of truth: `changelog/<major.minor>.x/<version>.md` (e.g. `changelog/0.1.x/0.1.0.md`) — one file per release, shipped in the npm package. At release, author the per-version file with a concrete version and date, then run `npm run changelog:build` to regenerate the rollup. `changelog/template.md` is a **pristine format reference** — never edited or moved; read it for the frontmatter + section layout when scaffolding. `CHANGELOG.md` is a **navigation index** (header + link + summary per version), regenerated by `npm run changelog:build` — devcheck hard-fails on drift; never hand-edit it.
-
-Each per-version file opens with YAML frontmatter:
-
-```markdown
----
-summary: "One-line headline, ≤350 chars"  # required — powers the rollup index
-breaking: false                            # optional — true flags breaking changes
-security: false                            # optional — true flags security fixes
----
-
-# 0.1.0 — YYYY-MM-DD
-...
-```
-
-`breaking: true` renders a `· ⚠️ Breaking` badge — use it when consumers must update code on upgrade (signature changes, removed APIs, config renames). `security: true` renders a `· 🛡️ Security` badge and pairs with a `## Security` body section. When both are set, badges render `· ⚠️ Breaking · 🛡️ Security`.
-
-**Section order** (Keep a Changelog): Added, Changed, Deprecated, Removed, Fixed, Security. Include only sections with entries — don't ship empty headers.
+Directory-based, grouped by minor series via the `.x` semver-wildcard convention. Source of truth: `changelog/<major.minor>.x/<version>.md` (e.g. `changelog/0.1.x/0.1.0.md`) — one file per release, shipped in the npm package. At release, author the per-version file with a concrete version and date, then run `bun run changelog:build` to regenerate the rollup. `changelog/template.md` is a **pristine format reference** — never edited or moved; read it for the frontmatter + section layout when scaffolding. `CHANGELOG.md` is a **navigation index** regenerated by `bun run changelog:build` — devcheck hard-fails on drift; never hand-edit it.
 
 ---
 
@@ -336,7 +295,7 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { McpError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 
 // Server's own code — via path alias
-import { getMyService } from '@/services/my-domain/my-service.js';
+import { getFredApiService } from '@/services/fred/fred-service.js';
 ```
 
 ---
@@ -349,9 +308,12 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] `ctx.log` for logging, `ctx.state` for storage
 - [ ] Handlers throw on failure — error factories or plain `Error`, no try/catch
 - [ ] `format()` renders all data the LLM needs — different clients forward different surfaces (Claude Code → `structuredContent`, Claude Desktop → `content[]`); both must carry the same data
-- [ ] If wrapping external API: raw/domain/output schemas reviewed against real upstream sparsity/nullability before finalizing required vs optional fields
-- [ ] If wrapping external API: normalization and `format()` preserve uncertainty; do not fabricate facts from missing upstream data
-- [ ] If wrapping external API: tests include at least one sparse payload case with omitted upstream fields
+- [ ] FRED wrapping: raw/domain/output schemas reviewed against real upstream sparsity/nullability before finalizing required vs optional fields
+- [ ] FRED wrapping: normalization and `format()` preserve uncertainty; do not fabricate facts from missing upstream data
+- [ ] FRED wrapping: tests include at least one sparse payload case with omitted upstream fields
+- [ ] FRED wrapping: observation values kept as strings (FRED returns them as strings to preserve trailing zeros — don't coerce to float)
+- [ ] Multi-series tools use `Promise.allSettled` with partial success reporting
+- [ ] `fred_get_observations` DataCanvas spillover: multi-series or >500 rows spill to canvas; single short-range returns inline; degrades gracefully when canvas unavailable
 - [ ] Registered in `createApp()` arrays (directly or via barrel exports)
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
-- [ ] `npm run devcheck` passes
+- [ ] `bun run devcheck` passes
