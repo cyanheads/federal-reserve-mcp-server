@@ -7,7 +7,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, validationError } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 export const fredGetReleaseTool = tool('fred_get_release', {
@@ -25,7 +25,7 @@ export const fredGetReleaseTool = tool('fred_get_release', {
     },
     {
       reason: 'ambiguous_release_search',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'release_search matched multiple releases with similar names.',
       recovery: 'Narrow the search term or use release_id for an exact match.',
     },
@@ -109,7 +109,7 @@ export const fredGetReleaseTool = tool('fred_get_release', {
     const hasSearch = input.release_search && input.release_search.trim().length > 0;
 
     if (!hasId && !hasSearch) {
-      throw new Error('Provide either release_id or release_search.');
+      throw validationError('Provide either release_id or release_search.');
     }
 
     let releaseId: number;

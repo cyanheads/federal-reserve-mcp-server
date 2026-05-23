@@ -6,6 +6,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { notFound } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
@@ -70,7 +71,7 @@ export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
 
     const cat = categoryResp.categories?.[0];
     if (!cat) {
-      throw new Error(`Category ${category_id} not found on FRED.`);
+      throw notFound(`Category ${category_id} not found on FRED.`, { category_id });
     }
 
     const children = (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name }));

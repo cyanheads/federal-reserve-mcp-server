@@ -1,6 +1,6 @@
 # fred-mcp-server - Directory Structure
 
-Generated on: 2026-05-23 09:08:06
+Generated on: 2026-05-23 10:50:13
 
 ```text
 fred-mcp-server/
@@ -156,6 +156,7 @@ fred-mcp-server/
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
+├── LICENSE
 ├── manifest.json
 ├── package.json
 ├── README.md

@@ -37,7 +37,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
     },
     {
       reason: 'frequency_too_high',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'Requested frequency aggregation is higher than the series native frequency.',
       recovery: 'Use a lower frequency or omit the frequency parameter.',
     },
