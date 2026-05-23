@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/fred-mcp-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mcpName": "io.github.cyanheads/fred-mcp-server",
   "description": "MCP server for the FRED API — search and fetch ~800K Federal Reserve economic time-series. STDIO or Streamable HTTP.",
   "type": "module",
@@ -33,7 +33,11 @@
     "test": "vitest run",
     "start": "node dist/index.js",
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
-    "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js"
+    "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js",
+    "audit:refresh": "rm -f bun.lock && bun install && bun audit",
+    "bundle": "bun run build && npx -y @anthropic-ai/mcpb pack . dist/@cyanheads/fred-mcp-server.mcpb",
+    "lint:packaging": "bun run scripts/lint-packaging.ts",
+    "publish-mcp": "mcp-publisher login github -token \"$(security find-generic-password -a \"$USER\" -s mcp-publisher-github-pat -w)\" && mcp-publisher publish"
   },
   "keywords": [
     "fred",
@@ -77,8 +81,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@cyanheads/mcp-ts-core": "^0.9.1",
-    "pino-pretty": "^13.1.3"
+    "@cyanheads/mcp-ts-core": "^0.9.5",
+    "pino-pretty": "^13.1.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

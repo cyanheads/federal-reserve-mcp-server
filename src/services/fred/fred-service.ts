@@ -69,7 +69,7 @@ export class FredApiService {
   }
 
   /** Search for series by full-text or series_id query. */
-  async searchSeries(params: SearchSeriesParams, ctx: Context): Promise<FredSearchResponse> {
+  searchSeries(params: SearchSeriesParams, ctx: Context): Promise<FredSearchResponse> {
     const query = new URLSearchParams({ api_key: this.apiKey, file_type: 'json' });
     query.set('search_text', params.query);
     if (params.search_type) query.set('search_type', params.search_type);
@@ -83,7 +83,7 @@ export class FredApiService {
   }
 
   /** Fetch metadata for a single series by ID. */
-  async getSeriesById(series_id: string, ctx: Context): Promise<FredSeriesResponse> {
+  getSeriesById(series_id: string, ctx: Context): Promise<FredSeriesResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -93,10 +93,7 @@ export class FredApiService {
   }
 
   /** Fetch observations for a single series. */
-  async getObservations(
-    params: GetObservationsParams,
-    ctx: Context,
-  ): Promise<FredObservationsResponse> {
+  getObservations(params: GetObservationsParams, ctx: Context): Promise<FredObservationsResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -114,7 +111,7 @@ export class FredApiService {
   }
 
   /** Fetch a category by ID. */
-  async getCategory(category_id: number, ctx: Context): Promise<FredCategoryResponse> {
+  getCategory(category_id: number, ctx: Context): Promise<FredCategoryResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -124,7 +121,7 @@ export class FredApiService {
   }
 
   /** Fetch child categories of a given category. */
-  async getCategoryChildren(category_id: number, ctx: Context): Promise<FredCategoryResponse> {
+  getCategoryChildren(category_id: number, ctx: Context): Promise<FredCategoryResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -134,7 +131,7 @@ export class FredApiService {
   }
 
   /** Fetch a sample of series within a category (for leaf nodes). */
-  async getCategorySeries(
+  getCategorySeries(
     params: GetCategorySeriesParams,
     ctx: Context,
   ): Promise<FredCategorySeriesResponse> {
@@ -148,7 +145,7 @@ export class FredApiService {
   }
 
   /** Fetch a single release by ID. */
-  async getRelease(release_id: number, ctx: Context): Promise<FredReleaseResponse> {
+  getRelease(release_id: number, ctx: Context): Promise<FredReleaseResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -158,7 +155,7 @@ export class FredApiService {
   }
 
   /** Fetch all releases (used for client-side name search). */
-  async getAllReleases(ctx: Context): Promise<FredReleasesResponse> {
+  getAllReleases(ctx: Context): Promise<FredReleasesResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -168,7 +165,7 @@ export class FredApiService {
   }
 
   /** Fetch series belonging to a release. */
-  async getReleaseSeries(
+  getReleaseSeries(
     params: GetReleaseSeriesParams,
     ctx: Context,
   ): Promise<FredReleaseSeriesResponse> {
@@ -183,10 +180,7 @@ export class FredApiService {
   }
 
   /** Fetch scheduled release dates for a release. */
-  async getReleaseDates(
-    params: GetReleaseDatesParams,
-    ctx: Context,
-  ): Promise<FredReleaseDatesResponse> {
+  getReleaseDates(params: GetReleaseDatesParams, ctx: Context): Promise<FredReleaseDatesResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
@@ -199,7 +193,7 @@ export class FredApiService {
 
   // ─── Core fetch ────────────────────────────────────────────────────────────
 
-  private async get<T>(path: string, query: URLSearchParams, ctx: Context): Promise<T> {
+  private get<T>(path: string, query: URLSearchParams, ctx: Context): Promise<T> {
     const url = `${this.baseUrl}${path}?${query.toString()}`;
     return withRetry(
       async () => {

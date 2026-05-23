@@ -17,6 +17,7 @@ import {
   inferSchemaFromRows,
   type QueryResult,
 } from '@cyanheads/mcp-ts-core/canvas';
+import type { RequestContextLike } from '@cyanheads/mcp-ts-core/utils';
 import { idGenerator } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
 import { assertNoSystemCatalogAccess } from './sql-gate-extras.js';
@@ -271,16 +272,15 @@ export class CanvasBridge {
 
   /** Acquire (or mint) the tenant's shared canvas, persisting the canvas ID. */
   private async acquireSharedCanvas(ctx: Context): Promise<CanvasInstance> {
-    const reqCtx = ctx as unknown as Parameters<DataCanvas['acquire']>[1];
     const stored = await ctx.state.get<string>(CANVAS_ID_KEY);
     if (stored) {
       try {
-        return await this.canvas.acquire(stored, reqCtx);
+        return await this.canvas.acquire(stored, ctx as RequestContextLike);
       } catch {
         await ctx.state.delete(CANVAS_ID_KEY);
       }
     }
-    const instance = await this.canvas.acquire(undefined, reqCtx);
+    const instance = await this.canvas.acquire(undefined, ctx as RequestContextLike);
     await ctx.state.set(CANVAS_ID_KEY, instance.canvasId);
     return instance;
   }

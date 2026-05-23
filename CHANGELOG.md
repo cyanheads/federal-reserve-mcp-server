@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.2](changelog/0.1.x/0.1.2.md) — 2026-05-23
+
+Maintenance: mcp-ts-core ^0.9.5, explicit zod dep, MCPB bundle support, async cleanup.
+
 ## [0.1.1](changelog/0.1.x/0.1.1.md) — 2026-05-21
 
 Full FRED tool surface implementation: five domain tools, DataCanvas integration, FredApiService, and test coverage.

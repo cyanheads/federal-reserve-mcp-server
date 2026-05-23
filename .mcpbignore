@@ -1,0 +1,13 @@
+src/
+tests/
+coverage/
+.env*
+.mcpregistry_*
+.claude/
+.agents/
+Dockerfile
+bun.lock
+bunfig.toml
+biome.json
+tsconfig*.json
+vitest.config.ts

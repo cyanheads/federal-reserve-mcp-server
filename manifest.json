@@ -1,0 +1,40 @@
+{
+  "manifest_version": "0.3",
+  "name": "fred-mcp-server",
+  "version": "0.1.2",
+  "description": "MCP server for the FRED API — search and fetch ~800K Federal Reserve economic time-series. STDIO or Streamable HTTP.",
+  "author": { "name": "cyanheads" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cyanheads/fred-mcp-server"
+  },
+  "homepage": "https://github.com/cyanheads/fred-mcp-server#readme",
+  "license": "Apache-2.0",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "MCP_AUTH_MODE": "none",
+        "NODE_ENV": "production",
+        "FRED_API_KEY": "${user_config.fred_api_key}"
+      }
+    }
+  },
+  "compatibility": {
+    "runtimes": { "node": ">=24.0.0" }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "fred_api_key": {
+      "type": "string",
+      "title": "FRED API Key",
+      "description": "API key from stlouisfed.org/docs/api/api_key.html. Required for all FRED API calls.",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}

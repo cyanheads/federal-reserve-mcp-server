@@ -144,7 +144,6 @@ export const fredGetReleaseTool = tool('fred_get_release', {
             `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.`,
             {
               ...ctx.recoveryFor('ambiguous_release_search'),
-              // biome-ignore lint/style/noNonNullAssertion: matches is non-empty, this is safe
               search_alternatives: matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name })),
             },
           );
