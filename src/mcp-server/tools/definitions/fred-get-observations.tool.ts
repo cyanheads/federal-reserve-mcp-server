@@ -14,17 +14,19 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 const SPILLOVER_ROW_THRESHOLD = 500;
 const PREVIEW_ROWS = 20;
 
-/** Truncate inline observation arrays to `maxRows` total across all series. */
+/**
+ * Truncate inline observation arrays to `maxRows` total across all series.
+ * `observation_count` is preserved as the true fetched count — only `observations`
+ * is sliced, so callers can distinguish "no data" from "crowded out by preview cap".
+ */
 function truncateInline(
   series: { observations: { date: string; value: string }[]; observation_count: number }[],
   maxRows: number,
 ): void {
-  let emitted = 0;
+  const perSeries = series.length > 0 ? Math.floor(maxRows / series.length) : maxRows;
   for (const s of series) {
-    const take = Math.max(0, maxRows - emitted);
-    s.observations = s.observations.slice(0, take);
-    s.observation_count = s.observations.length;
-    emitted += s.observations.length;
+    s.observations = s.observations.slice(0, perSeries);
+    // observation_count intentionally not mutated — it reflects the true fetched count.
   }
 }
 
@@ -65,16 +67,18 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
   input: z.object({
     series_ids: z
       .union([
-        z.string().describe('Single series ID (e.g., "UNRATE").'),
-        z.array(z.string()).max(10).describe('Array of up to 10 series IDs.'),
+        z.string().min(1).describe('Single series ID (e.g., "UNRATE").'),
+        z.array(z.string().min(1)).min(1).max(10).describe('Array of up to 10 series IDs.'),
       ])
       .describe('One series ID or an array of up to 10 series IDs.'),
     observation_start: z
       .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
       .optional()
       .describe('Start date for observations (YYYY-MM-DD). Defaults to the series start.'),
     observation_end: z
       .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
       .optional()
       .describe('End date for observations (YYYY-MM-DD). Defaults to the series end.'),
     units: z
@@ -248,7 +252,11 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
               ...ctx.recoveryFor('series_not_found'),
             });
           }
-          if (lower.includes('frequency')) {
+          if (
+            lower.includes('frequency') ||
+            fredBody.includes('frequency') ||
+            fredBody.includes('aggregate')
+          ) {
             throw ctx.fail(
               'frequency_too_high',
               `Frequency aggregation error for ${series_id}: ${msg}`,

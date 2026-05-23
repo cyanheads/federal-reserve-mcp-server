@@ -29,7 +29,13 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
       .optional()
       .describe('Semicolon-delimited list of tag names to filter by.'),
     limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 1000).'),
-    offset: z.number().int().min(0).optional().describe('Pagination offset.'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(4999)
+      .optional()
+      .describe('Pagination offset (FRED caps searchable results at 5000; offset must be ≤ 4999).'),
   }),
 
   output: z.object({

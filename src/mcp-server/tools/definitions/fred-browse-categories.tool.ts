@@ -6,14 +6,24 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { notFound } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
+import type { FredCategoryResponse } from '@/services/fred/types.js';
 
 export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
   title: 'Browse FRED Categories',
   description:
     'Navigate the FRED category tree. Returns the current category, its child categories, and — when viewing a leaf node with no children — a sample of series within it. Omit category_id to start at the root (ID 0).',
   annotations: { readOnlyHint: true, openWorldHint: false },
+
+  errors: [
+    {
+      reason: 'category_not_found',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'category_id does not exist on FRED.',
+      recovery: 'Omit category_id to start at the root, or navigate from a known parent ID.',
+    },
+  ],
 
   input: z.object({
     category_id: z
@@ -64,14 +74,36 @@ export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
     const category_id = input.category_id ?? 0;
     ctx.log.info('fred_browse_categories', { category_id });
 
-    const [categoryResp, childrenResp] = await Promise.all([
-      getFredApiService().getCategory(category_id, ctx),
-      getFredApiService().getCategoryChildren(category_id, ctx),
-    ]);
+    let categoryResp: FredCategoryResponse;
+    let childrenResp: FredCategoryResponse;
+    try {
+      [categoryResp, childrenResp] = await Promise.all([
+        getFredApiService().getCategory(category_id, ctx),
+        getFredApiService().getCategoryChildren(category_id, ctx),
+      ]);
+    } catch (err) {
+      const fredBody = String(
+        (err != null && typeof err === 'object' && 'data' in err
+          ? (err as { data?: { body?: unknown } }).data?.body
+          : undefined) ?? '',
+      ).toLowerCase();
+      if (
+        fredBody.includes('does not exist') ||
+        fredBody.includes('bad request') ||
+        fredBody.includes('not found')
+      ) {
+        throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`, {
+          ...ctx.recoveryFor('category_not_found'),
+        });
+      }
+      throw err;
+    }
 
     const cat = categoryResp.categories?.[0];
     if (!cat) {
-      throw notFound(`Category ${category_id} not found on FRED.`, { category_id });
+      throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`, {
+        ...ctx.recoveryFor('category_not_found'),
+      });
     }
 
     const children = (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name }));

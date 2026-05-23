@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-05-23
+
+Field-test bug fixes: error classification, input validation, and output formatting across FRED tools.
+
 ## [0.1.5](changelog/0.1.x/0.1.5.md) — 2026-05-23
 
 Pre-launch polish: code simplification in fred-get-observations and fred-get-release, AGENTS.md added, Dockerfile OCI labels and .env.example filled in, bunfig.toml added.

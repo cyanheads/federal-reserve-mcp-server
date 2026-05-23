@@ -46,8 +46,8 @@ export const fredGetSeriesTool = tool('fred_get_series', {
   input: z.object({
     series_ids: z
       .union([
-        z.string().describe('Single series ID (e.g., "UNRATE").'),
-        z.array(z.string()).max(50).describe('Array of up to 50 series IDs.'),
+        z.string().min(1).describe('Single series ID (e.g., "UNRATE").'),
+        z.array(z.string().min(1)).min(1).max(50).describe('Array of up to 50 series IDs.'),
       ])
       .describe('One series ID or an array of up to 50 series IDs.'),
   }),

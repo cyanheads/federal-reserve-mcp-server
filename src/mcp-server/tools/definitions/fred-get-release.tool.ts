@@ -5,8 +5,9 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode, validationError } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
+import type { FredReleaseResponse } from '@/services/fred/types.js';
 
 export const fredGetReleaseTool = tool('fred_get_release', {
   title: 'Get FRED Release',
@@ -15,6 +16,13 @@ export const fredGetReleaseTool = tool('fred_get_release', {
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   errors: [
+    {
+      reason: 'missing_input',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'Neither release_id nor release_search was provided, or both were provided.',
+      recovery:
+        'Supply release_id (integer) or release_search (substring) — not both, not neither.',
+    },
     {
       reason: 'release_not_found',
       code: JsonRpcErrorCode.NotFound,
@@ -106,7 +114,15 @@ export const fredGetReleaseTool = tool('fred_get_release', {
     const hasSearch = (input.release_search?.trim().length ?? 0) > 0;
 
     if (!hasId && !hasSearch) {
-      throw validationError('Provide either release_id or release_search.');
+      throw ctx.fail('missing_input', 'Provide either release_id or release_search.', {
+        ...ctx.recoveryFor('missing_input'),
+      });
+    }
+
+    if (hasId && hasSearch) {
+      throw ctx.fail('missing_input', 'Provide release_id or release_search, not both.', {
+        ...ctx.recoveryFor('missing_input'),
+      });
     }
 
     let releaseId: number;
@@ -151,8 +167,28 @@ export const fredGetReleaseTool = tool('fred_get_release', {
     const limit = input.series_limit ?? 20;
     const offset = input.series_offset ?? 0;
 
-    const [releaseResp, seriesResp, datesResp] = await Promise.all([
-      getFredApiService().getRelease(releaseId, ctx),
+    let releaseResp: FredReleaseResponse;
+    try {
+      releaseResp = await getFredApiService().getRelease(releaseId, ctx);
+    } catch (err) {
+      const fredBody = String(
+        (err != null && typeof err === 'object' && 'data' in err
+          ? (err as { data?: { body?: unknown } }).data?.body
+          : undefined) ?? '',
+      ).toLowerCase();
+      if (
+        fredBody.includes('does not exist') ||
+        fredBody.includes('bad request') ||
+        fredBody.includes('not found')
+      ) {
+        throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`, {
+          ...ctx.recoveryFor('release_not_found'),
+        });
+      }
+      throw err;
+    }
+
+    const [seriesResp, datesResp] = await Promise.all([
       getFredApiService().getReleaseSeries({ release_id: releaseId, limit, offset }, ctx),
       getFredApiService()
         .getReleaseDates({ release_id: releaseId }, ctx)
