@@ -2,7 +2,7 @@
   "name": "@cyanheads/fred-mcp-server",
   "version": "0.1.2",
   "mcpName": "io.github.cyanheads/fred-mcp-server",
-  "description": "MCP server for the FRED API — search and fetch ~800K Federal Reserve economic time-series. STDIO or Streamable HTTP.",
+  "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -50,6 +50,9 @@
     "mcp-server",
     "model-context-protocol",
     "typescript",
+    "bun",
+    "stdio",
+    "streamable-http",
     "ai-agent"
   ],
   "repository": {

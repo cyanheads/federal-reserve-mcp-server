@@ -1,6 +1,6 @@
 <div align="center">
   <h1>@cyanheads/fred-mcp-server</h1>
-  <p><b>MCP server for the FRED API — search and fetch ~800K Federal Reserve economic time-series. STDIO or Streamable HTTP.</b>
+  <p><b>Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.</b>
   <div>8 Tools</div>
   </p>
 </div>
