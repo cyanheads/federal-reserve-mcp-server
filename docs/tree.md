@@ -1,6 +1,6 @@
 # fred-mcp-server - Directory Structure
 
-Generated on: 2026-05-23 14:18:37
+Generated on: 2026-05-23 14:27:57
 
 ```text
 fred-mcp-server/
@@ -150,6 +150,7 @@ fred-mcp-server/
 ├── .env.example
 ├── .gitignore
 ├── .mcpbignore
+├── AGENTS.md
 ├── biome.json
 ├── bun.lock
 ├── bunfig.toml

@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.5](changelog/0.1.x/0.1.5.md) — 2026-05-23
+
+Pre-launch polish: code simplification in fred-get-observations and fred-get-release, AGENTS.md added, Dockerfile OCI labels and .env.example filled in, bunfig.toml added.
+
 ## [0.1.4](changelog/0.1.x/0.1.4.md) — 2026-05-23 · 🛡️ Security
 
 Field-test fixes: API key stripped from error URLs, single-ID not-found, observation_count accuracy, search UX, description cleanup.
