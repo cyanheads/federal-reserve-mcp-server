@@ -14,6 +14,20 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 const SPILLOVER_ROW_THRESHOLD = 500;
 const PREVIEW_ROWS = 20;
 
+/** Truncate inline observation arrays to `maxRows` total across all series. */
+function truncateInline(
+  series: { observations: { date: string; value: string }[]; observation_count: number }[],
+  maxRows: number,
+): void {
+  let emitted = 0;
+  for (const s of series) {
+    const take = Math.max(0, maxRows - emitted);
+    s.observations = s.observations.slice(0, take);
+    s.observation_count = s.observations.length;
+    emitted += s.observations.length;
+  }
+}
+
 const ObservationSchema = z.object({
   date: z.string().describe('Observation date (YYYY-MM-DD).'),
   value: z
@@ -219,11 +233,11 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
         if (ids.length === 1) {
           const lower = msg.toLowerCase();
           // FRED returns HTTP 400 for unknown series — check body for the error message
-          const errData =
-            typeof err === 'object' && err !== null && 'data' in err
-              ? (err as { data?: Record<string, unknown> }).data
-              : undefined;
-          const fredBody = String(errData?.body ?? '').toLowerCase();
+          const fredBody = String(
+            (err != null && typeof err === 'object' && 'data' in err
+              ? (err as { data?: { body?: unknown } }).data?.body
+              : undefined) ?? '',
+          ).toLowerCase();
           const isNotFound =
             lower.includes('not found') ||
             lower.includes('404') ||
@@ -272,13 +286,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
 
       // Keep only preview in inline arrays
       const previewCount = registered ? PREVIEW_ROWS : (seriesResults[0]?.observations.length ?? 0);
-      let rowsEmitted = 0;
-      for (const s of seriesResults) {
-        const take = Math.max(0, previewCount - rowsEmitted);
-        s.observations = s.observations.slice(0, take);
-        s.observation_count = s.observations.length;
-        rowsEmitted += s.observations.length;
-      }
+      truncateInline(seriesResults, previewCount);
 
       return {
         series: seriesResults,
@@ -302,14 +310,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
 
     if (shouldSpill && !bridge) {
       // Canvas not available — truncate inline
-      const take = PREVIEW_ROWS;
-      let rowsEmitted = 0;
-      for (const s of seriesResults) {
-        const sliceTo = Math.max(0, take - rowsEmitted);
-        s.observations = s.observations.slice(0, sliceTo);
-        s.observation_count = s.observations.length;
-        rowsEmitted += s.observations.length;
-      }
+      truncateInline(seriesResults, PREVIEW_ROWS);
       return {
         series: seriesResults,
         failed,

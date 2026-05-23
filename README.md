@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/@cyanheads/fred-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/fred-mcp-server) [![Version](https://img.shields.io/badge/Version-0.1.4-blue.svg?style=flat-square)](./CHANGELOG.md) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.4-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/fred-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/fred-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/fred-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 [![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/fred-mcp-server/releases/latest/download/fred-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=fred-mcp-server&config=eyJjb21tYW5kIjoibnB4IC15IEBjeWFuaGVhZHMvZnJlZC1tY3Atc2VydmVyIn0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22fred-mcp-server%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40cyanheads%2Ffred-mcp-server%22%5D%7D)
 
@@ -30,7 +30,7 @@ Five FRED tools plus three DataCanvas tools for querying spilled observation res
 | `fred_get_release` | Look up a FRED release by ID or name search — returns release metadata and its associated series list |
 | `fred_dataframe_describe` | List active DataCanvas dataframes registered by this server (canvas IDs, row counts, schemas) |
 | `fred_dataframe_query` | Run a SELECT query against a registered DataCanvas dataframe |
-| `fred_dataframe_drop` | Drop a DataCanvas dataframe by canvas ID (configurable via `FRED_DATAFRAME_DROP` env var) |
+| `fred_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
 
 ### `fred_search_series`
 
@@ -62,7 +62,7 @@ Fetch observation data (date + value pairs) for one or more series.
 - Date-range filtering with ISO 8601 dates (`observation_start`, `observation_end`)
 - FRED's native unit transformations: `lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`
 - Frequency downsampling with configurable aggregation method (`avg`, `sum`, `eop`)
-- Multi-series or >500-row results spill to a DataCanvas table for SQL querying via `canvas_id`
+- Multi-series or >500-row results spill to a DataCanvas table; response includes a `dataset.name` handle for SQL querying via `fred_dataframe_query`
 - Degrades gracefully when DataCanvas is unavailable — returns inline preview with row count
 
 ---
@@ -101,7 +101,7 @@ FRED-specific:
 
 - Read-only access to the St. Louis Fed's FRED API (`api.stlouisfed.org/fred`)
 - Parallel multi-series fetching via `Promise.allSettled` with partial success reporting
-- DataCanvas spillover for multi-series or large observation results (opt-in via `canvas_id`)
+- DataCanvas spillover for multi-series or large observation results — spilled tables queryable via `fred_dataframe_query`
 - Retry with backoff and 429 rate-limit detection against FRED's 120 req/min limit
 - FRED's native unit transformations delegated server-side for precision against the full series history
 
@@ -205,10 +205,15 @@ cp .env.example .env
 
 ## Configuration
 
+All configuration is validated at startup via Zod schemas in `src/config/server-config.ts`.
+
 | Variable | Description | Default |
 |:---------|:------------|:--------|
-| `FRED_API_KEY` | **Required.** API key from stlouisfed.org. | — |
+| `FRED_API_KEY` | **Required.** API key from [stlouisfed.org](https://research.stlouisfed.org/docs/api/api_key.html). | — |
 | `FRED_BASE_URL` | Override the FRED API base URL. | `https://api.stlouisfed.org/fred` |
+| `FRED_DATASET_TTL_SECONDS` | Sliding TTL for DataCanvas-registered observation tables (seconds). | `86400` |
+| `FRED_DATAFRAME_DROP_ENABLED` | Set `true` to expose the `fred_dataframe_drop` tool. | `false` |
+| `CANVAS_PROVIDER_TYPE` | Set to `duckdb` to enable DataCanvas SQL querying for observation results. | — |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for HTTP server. | `3010` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
@@ -245,17 +250,12 @@ See [`.env.example`](./.env.example) for the full list of optional overrides.
 
 ### Docker
 
-```json
-{
-  "mcpServers": {
-    "fred": {
-      "type": "stdio",
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT_TYPE=stdio", "-e", "FRED_API_KEY=your-api-key", "ghcr.io/cyanheads/fred-mcp-server:latest"]
-    }
-  }
-}
+```sh
+docker build -t fred-mcp-server .
+docker run --rm -e FRED_API_KEY=your-key -e MCP_TRANSPORT_TYPE=http -p 3010:3010 fred-mcp-server
 ```
+
+The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `/var/log/fred-mcp-server`. OpenTelemetry peer dependencies are installed by default — build with `--build-arg OTEL_ENABLED=false` to omit them.
 
 ## Project structure
 
@@ -263,8 +263,9 @@ See [`.env.example`](./.env.example) for the full list of optional overrides.
 |:----------|:--------|
 | `src/index.ts` | `createApp()` entry point — registers tools and inits services. |
 | `src/config` | Server-specific environment variable parsing and validation with Zod. |
-| `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). |
+| `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). Eight tools across FRED domain and DataCanvas. |
 | `src/services/fred` | FRED API service — HTTP client, retry, 429 handling, key injection. |
+| `src/services/canvas-bridge` | DataCanvas adapter — table naming, TTL/provenance tracking, SQL gate extras. |
 | `tests/` | Unit and integration tests mirroring `src/`. |
 | `docs/` | Design and planning documents. |
 

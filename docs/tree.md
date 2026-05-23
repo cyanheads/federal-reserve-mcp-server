@@ -1,6 +1,6 @@
 # fred-mcp-server - Directory Structure
 
-Generated on: 2026-05-23 10:50:13
+Generated on: 2026-05-23 14:18:37
 
 ```text
 fred-mcp-server/
@@ -152,6 +152,7 @@ fred-mcp-server/
 ├── .mcpbignore
 ├── biome.json
 ├── bun.lock
+├── bunfig.toml
 ├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json

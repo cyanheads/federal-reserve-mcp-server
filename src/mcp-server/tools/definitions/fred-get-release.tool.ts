@@ -102,9 +102,8 @@ export const fredGetReleaseTool = tool('fred_get_release', {
   }),
 
   async handler(input, ctx) {
-    // Validate: exactly one of release_id or release_search required
     const hasId = input.release_id !== undefined;
-    const hasSearch = input.release_search && input.release_search.trim().length > 0;
+    const hasSearch = (input.release_search?.trim().length ?? 0) > 0;
 
     if (!hasId && !hasSearch) {
       throw validationError('Provide either release_id or release_search.');
@@ -120,8 +119,9 @@ export const fredGetReleaseTool = tool('fred_get_release', {
       ctx.log.info('fred_get_release by search', { term: searchTerm });
 
       const allResp = await getFredApiService().getAllReleases(ctx);
-      const releases = allResp.releases ?? [];
-      const matches = releases.filter((r) => r.name.toLowerCase().includes(searchTerm));
+      const matches = (allResp.releases ?? []).filter((r) =>
+        r.name.toLowerCase().includes(searchTerm),
+      );
 
       if (matches.length === 0) {
         throw ctx.fail('release_not_found', `No FRED releases matched "${input.release_search}".`, {
@@ -129,25 +129,22 @@ export const fredGetReleaseTool = tool('fred_get_release', {
         });
       }
 
-      if (matches.length === 1) {
-        releaseId = matches[0]!.id;
+      const exact =
+        matches.length > 1 ? matches.find((r) => r.name.toLowerCase() === searchTerm) : undefined;
+
+      if (matches.length === 1 || exact) {
+        releaseId = (exact ?? matches[0]!).id;
       } else {
-        // Multiple matches — check if there's an exact match
-        const exact = matches.find((r) => r.name.toLowerCase() === searchTerm);
-        if (exact) {
-          releaseId = exact.id;
-        } else {
-          const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
-          const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
-          throw ctx.fail(
-            'ambiguous_release_search',
-            `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
-            {
-              ...ctx.recoveryFor('ambiguous_release_search'),
-              search_alternatives: alternatives,
-            },
-          );
-        }
+        const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
+        const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
+        throw ctx.fail(
+          'ambiguous_release_search',
+          `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
+          {
+            ...ctx.recoveryFor('ambiguous_release_search'),
+            search_alternatives: alternatives,
+          },
+        );
       }
     }
 
