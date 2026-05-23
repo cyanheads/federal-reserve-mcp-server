@@ -1,8 +1,7 @@
 /**
  * @fileoverview Retrieve metadata for one or more FRED series — title, units,
  * frequency, seasonal adjustment, observation range, popularity, and notes.
- * Fires parallel upstream requests (FRED has no batch endpoint) and returns
- * partial success when some IDs fail.
+ * Returns partial success when some IDs fail.
  * @module mcp-server/tools/definitions/fred-get-series
  */
 
@@ -26,7 +25,7 @@ const SeriesMetaSchema = z.object({
 export const fredGetSeriesTool = tool('fred_get_series', {
   title: 'Get FRED Series Metadata',
   description:
-    'Retrieve metadata for one or more FRED series — title, units, frequency, seasonal adjustment status, observation range, popularity, and notes. Accepts up to 50 series IDs; fires parallel upstream requests (no batch endpoint exists). Returns partial success when some IDs fail.',
+    'Retrieve metadata for one or more FRED series — title, units, frequency, seasonal adjustment status, observation range, popularity, and notes. Accepts up to 50 series IDs. Returns partial success when some IDs fail.',
   annotations: { readOnlyHint: true, openWorldHint: false },
 
   errors: [
@@ -112,8 +111,14 @@ export const fredGetSeriesTool = tool('fred_get_series', {
     }
 
     if (series.length === 0 && failed.length > 0) {
+      if (ids.length === 1) {
+        throw ctx.fail('series_not_found', `Series ${ids[0]} not found on FRED.`, {
+          ...ctx.recoveryFor('series_not_found'),
+        });
+      }
       throw ctx.fail('partial_failure', `All ${ids.length} series IDs failed to resolve.`, {
         ...ctx.recoveryFor('partial_failure'),
+        failed,
       });
     }
 

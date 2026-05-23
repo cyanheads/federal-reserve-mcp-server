@@ -1,8 +1,6 @@
 /**
  * @fileoverview Return metadata and associated series for a FRED release.
- * Accepts a `release_id` integer or a `release_search` text query — the name
- * path fetches all releases via /fred/releases and matches client-side (FRED
- * has no server-side release search endpoint).
+ * Accepts a `release_id` integer or a `release_search` text query.
  * @module mcp-server/tools/definitions/fred-get-release
  */
 
@@ -13,7 +11,7 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 export const fredGetReleaseTool = tool('fred_get_release', {
   title: 'Get FRED Release',
   description:
-    'Return metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a release_id integer or a release_search text query — the name path fetches all releases via /fred/releases and matches client-side by case-insensitive substring (FRED has no server-side release search). Returns release name, link, scheduled dates, and a paginated list of its series. Provide exactly one of release_id or release_search.',
+    'Return metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a release_id integer or a release_search text query — release_search performs a substring match across all FRED releases; prefer release_id when you know the ID. Returns release name, link, scheduled dates, and a paginated list of its series. Provide exactly one of release_id or release_search.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   errors: [
@@ -42,7 +40,7 @@ export const fredGetReleaseTool = tool('fred_get_release', {
       .string()
       .optional()
       .describe(
-        'Case-insensitive substring to match against release names. Fetches all releases (~300 entries) and filters client-side. Provide this or release_id — not both.',
+        'Case-insensitive substring to match against release names. Provide this or release_id — not both.',
       ),
     series_limit: z
       .number()
@@ -139,12 +137,14 @@ export const fredGetReleaseTool = tool('fred_get_release', {
         if (exact) {
           releaseId = exact.id;
         } else {
+          const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
+          const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
           throw ctx.fail(
             'ambiguous_release_search',
-            `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.`,
+            `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
             {
               ...ctx.recoveryFor('ambiguous_release_search'),
-              search_alternatives: matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name })),
+              search_alternatives: alternatives,
             },
           );
         }

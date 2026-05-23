@@ -1,9 +1,8 @@
 /**
  * @fileoverview Fetch observation data (date + value pairs) for one or more
- * FRED series over a date range. Fires one upstream request per series in
- * parallel. Multi-series or >500-row results spill to a DataCanvas table and
- * return a `df_<id>` handle for SQL querying via fred_dataframe_query. Degrades
- * gracefully when canvas is unavailable.
+ * FRED series over a date range. Multi-series or >500-row results spill to a
+ * DataCanvas table and return a `df_<id>` handle for SQL querying via
+ * fred_dataframe_query. Degrades gracefully when canvas is unavailable.
  * @module mcp-server/tools/definitions/fred-get-observations
  */
 
@@ -25,7 +24,7 @@ const ObservationSchema = z.object({
 export const fredGetObservationsTool = tool('fred_get_observations', {
   title: 'Get FRED Series Observations',
   description:
-    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Fires one upstream request per series in parallel (no multi-series batch endpoint exists). Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a DataCanvas table — the response includes a `dataset` field with the handle to query via fred_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
+    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a DataCanvas table — the response includes a `dataset` field with the handle to query via fred_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
   annotations: { readOnlyHint: true, openWorldHint: false },
 
   errors: [
@@ -214,11 +213,23 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
           observations: obs.map((o) => ({ date: o.date, value: o.value })),
         });
       } else {
-        const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        const err = result.reason;
+        const msg = err instanceof Error ? err.message : String(err);
 
         if (ids.length === 1) {
           const lower = msg.toLowerCase();
-          if (lower.includes('not found') || lower.includes('404')) {
+          // FRED returns HTTP 400 for unknown series — check body for the error message
+          const errData =
+            typeof err === 'object' && err !== null && 'data' in err
+              ? (err as { data?: Record<string, unknown> }).data
+              : undefined;
+          const fredBody = String(errData?.body ?? '').toLowerCase();
+          const isNotFound =
+            lower.includes('not found') ||
+            lower.includes('404') ||
+            fredBody.includes('does not exist') ||
+            fredBody.includes('is not in the database');
+          if (isNotFound) {
             throw ctx.fail('series_not_found', `Series ${series_id} not found on FRED.`, {
               ...ctx.recoveryFor('series_not_found'),
             });
@@ -230,6 +241,11 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
               { ...ctx.recoveryFor('frequency_too_high') },
             );
           }
+          // Any other single-series upstream error — surface as series_not_found so
+          // the caller gets a named error code with an actionable recovery hint.
+          throw ctx.fail('series_not_found', `Series ${series_id} could not be fetched: ${msg}`, {
+            ...ctx.recoveryFor('series_not_found'),
+          });
         }
         failed.push({ series_id, error: msg });
       }
@@ -260,6 +276,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       for (const s of seriesResults) {
         const take = Math.max(0, previewCount - rowsEmitted);
         s.observations = s.observations.slice(0, take);
+        s.observation_count = s.observations.length;
         rowsEmitted += s.observations.length;
       }
 
@@ -290,6 +307,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       for (const s of seriesResults) {
         const sliceTo = Math.max(0, take - rowsEmitted);
         s.observations = s.observations.slice(0, sliceTo);
+        s.observation_count = s.observations.length;
         rowsEmitted += s.observations.length;
       }
       return {

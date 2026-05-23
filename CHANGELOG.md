@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.4](changelog/0.1.x/0.1.4.md) — 2026-05-23 · 🛡️ Security
+
+Field-test fixes: API key stripped from error URLs, single-ID not-found, observation_count accuracy, search UX, description cleanup.
+
 ## [0.1.3](changelog/0.1.x/0.1.3.md) — 2026-05-23
 
 Error code semantics, mcp-ts-core ^0.9.5 → ^0.9.6, LICENSE added.

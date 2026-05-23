@@ -36,6 +36,11 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
     count: z.number().describe('Total matching series count.'),
     offset: z.number().describe('Pagination offset applied.'),
     limit: z.number().describe('Limit applied.'),
+    query: z.string().describe('Search query that was executed.'),
+    active_filters: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe('Active filter dimensions and values, if any were applied.'),
     series: z
       .array(
         z
@@ -68,10 +73,18 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
       ctx,
     );
 
+    const activeFilters: Record<string, string> = {};
+    if (input.filter_variable && input.filter_value) {
+      activeFilters[input.filter_variable] = input.filter_value;
+    }
+    if (input.tag_names) activeFilters.tag_names = input.tag_names;
+
     return {
       count: resp.count,
       offset: resp.offset,
       limit: resp.limit,
+      query: input.query,
+      ...(Object.keys(activeFilters).length > 0 && { active_filters: activeFilters }),
       series: (resp.seriess ?? []).map((s) => ({
         id: s.id,
         title: s.title ?? '',
@@ -86,15 +99,27 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
 
   format: (result) => {
     if (result.series.length === 0) {
+      const filterPart =
+        result.active_filters && Object.keys(result.active_filters).length > 0
+          ? ` (${Object.entries(result.active_filters)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(', ')})`
+          : '';
       return [
         {
           type: 'text',
-          text: `No series found. Total count: ${result.count}. Offset: ${result.offset}, Limit: ${result.limit}.`,
+          text: `No series found for "${result.query}"${filterPart}. Try broadening the search term, removing filters, or using fred_browse_categories to explore available series.`,
         },
       ];
     }
+    const filterSummary =
+      result.active_filters && Object.keys(result.active_filters).length > 0
+        ? ` | Filters: ${Object.entries(result.active_filters)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(', ')}`
+        : '';
     const lines = [
-      `**${result.count} total match(es) — showing ${result.series.length} (offset ${result.offset}, limit ${result.limit})**\n`,
+      `**Query:** "${result.query}" — ${result.count} total match(es), showing ${result.series.length} (offset ${result.offset}, limit ${result.limit})${filterSummary}\n`,
     ];
     for (const s of result.series) {
       lines.push(`### ${s.id}: ${s.title}`);

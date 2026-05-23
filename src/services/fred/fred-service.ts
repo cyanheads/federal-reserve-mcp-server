@@ -195,13 +195,16 @@ export class FredApiService {
 
   private get<T>(path: string, query: URLSearchParams, ctx: Context): Promise<T> {
     const url = `${this.baseUrl}${path}?${query.toString()}`;
+    const sanitizedQuery = new URLSearchParams(query);
+    sanitizedQuery.delete('api_key');
+    const sanitizedUrl = `${this.baseUrl}${path}?${sanitizedQuery.toString()}`;
     return withRetry(
       async () => {
         const response = await fetch(url, { signal: ctx.signal });
         if (!response.ok) {
           throw await httpErrorFromResponse(response, {
             service: 'FRED',
-            data: { path },
+            data: { url: sanitizedUrl, path },
           });
         }
         const text = await response.text();
