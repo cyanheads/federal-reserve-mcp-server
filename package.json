@@ -35,7 +35,7 @@
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
     "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js",
     "audit:refresh": "rm -f bun.lock && bun install && bun audit",
-    "bundle": "bun run build && npx -y @anthropic-ai/mcpb pack . dist/@cyanheads/fred-mcp-server.mcpb",
+    "bundle": "bun run build && npx -y @anthropic-ai/mcpb pack . dist/fred-mcp-server.mcpb",
     "lint:packaging": "bun run scripts/lint-packaging.ts",
     "publish-mcp": "mcp-publisher login github -token \"$(security find-generic-password -a \"$USER\" -s mcp-publisher-github-pat -w)\" && mcp-publisher publish"
   },
