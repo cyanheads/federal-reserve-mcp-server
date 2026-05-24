@@ -1,9 +1,9 @@
-# fred-mcp-server - Directory Structure
+# federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-05-23 14:27:57
+Generated on: 2026-05-24 22:55:42
 
 ```text
-fred-mcp-server/
+federal-reserve-mcp-server/
 ├── .claude/
 ├── .github/
 │   └── ISSUE_TEMPLATE/
@@ -112,14 +112,14 @@ fred-mcp-server/
 │   │   │   └── definitions/
 │   │   └── tools/
 │   │       └── definitions/
-│   │           ├── fred-browse-categories.tool.ts
-│   │           ├── fred-dataframe-describe.tool.ts
-│   │           ├── fred-dataframe-drop.tool.ts
-│   │           ├── fred-dataframe-query.tool.ts
-│   │           ├── fred-get-observations.tool.ts
-│   │           ├── fred-get-release.tool.ts
-│   │           ├── fred-get-series.tool.ts
-│   │           ├── fred-search-series.tool.ts
+│   │           ├── fedreserve-browse-categories.tool.ts
+│   │           ├── fedreserve-dataframe-describe.tool.ts
+│   │           ├── fedreserve-dataframe-drop.tool.ts
+│   │           ├── fedreserve-dataframe-query.tool.ts
+│   │           ├── fedreserve-get-observations.tool.ts
+│   │           ├── fedreserve-get-release.tool.ts
+│   │           ├── fedreserve-get-series.tool.ts
+│   │           ├── fedreserve-search-series.tool.ts
 │   │           └── index.ts
 │   ├── services/
 │   │   ├── canvas-bridge/
@@ -138,14 +138,14 @@ fred-mcp-server/
 │   │   └── fred/
 │   │       └── fred-service.test.ts
 │   └── tools/
-│       ├── fred-browse-categories.tool.test.ts
-│       ├── fred-dataframe-describe.tool.test.ts
-│       ├── fred-dataframe-drop.tool.test.ts
-│       ├── fred-dataframe-query.tool.test.ts
-│       ├── fred-get-observations.tool.test.ts
-│       ├── fred-get-release.tool.test.ts
-│       ├── fred-get-series.tool.test.ts
-│       └── fred-search-series.tool.test.ts
+│       ├── fedreserve-browse-categories.tool.test.ts
+│       ├── fedreserve-dataframe-describe.tool.test.ts
+│       ├── fedreserve-dataframe-drop.tool.test.ts
+│       ├── fedreserve-dataframe-query.tool.test.ts
+│       ├── fedreserve-get-observations.tool.test.ts
+│       ├── fedreserve-get-release.tool.test.ts
+│       ├── fedreserve-get-series.tool.test.ts
+│       └── fedreserve-search-series.tool.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore

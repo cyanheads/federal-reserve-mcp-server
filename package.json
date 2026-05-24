@@ -1,13 +1,13 @@
 {
-  "name": "@cyanheads/fred-mcp-server",
-  "version": "0.1.6",
-  "mcpName": "io.github.cyanheads/fred-mcp-server",
+  "name": "@cyanheads/federal-reserve-mcp-server",
+  "version": "0.2.0",
+  "mcpName": "io.github.cyanheads/federal-reserve-mcp-server",
   "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "fred-mcp-server": "dist/index.js"
+    "federal-reserve-mcp-server": "dist/index.js"
   },
   "files": [
     "changelog/",
@@ -35,39 +35,38 @@
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
     "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js",
     "audit:refresh": "rm -f bun.lock && bun install && bun audit",
-    "bundle": "bun run build && npx -y @anthropic-ai/mcpb pack . dist/fred-mcp-server.mcpb",
+    "bundle": "bun run build && npx -y @anthropic-ai/mcpb pack . dist/federal-reserve-mcp-server.mcpb",
     "lint:packaging": "bun run scripts/lint-packaging.ts",
     "publish-mcp": "mcp-publisher login github -token \"$(security find-generic-password -a \"$USER\" -s mcp-publisher-github-pat -w)\" && mcp-publisher publish"
   },
   "keywords": [
+    "federal-reserve",
+    "fedreserve",
     "fred",
     "fred-api",
-    "federal-reserve",
+    "federal-reserve-economic-data",
     "economic-data",
     "economics",
     "financial-data",
     "macroeconomics",
     "time-series",
     "stlouisfed",
-    "llm",
     "mcp",
     "mcp-server",
     "model-context-protocol",
     "typescript",
     "bun",
-    "stdio",
-    "streamable-http",
     "ai-agent"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cyanheads/fred-mcp-server.git"
+    "url": "git+https://github.com/cyanheads/federal-reserve-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/cyanheads/fred-mcp-server/issues"
+    "url": "https://github.com/cyanheads/federal-reserve-mcp-server/issues"
   },
-  "homepage": "https://github.com/cyanheads/fred-mcp-server#readme",
-  "author": "cyanheads <casey@caseyjhand.com> (https://github.com/cyanheads/fred-mcp-server#readme)",
+  "homepage": "https://github.com/cyanheads/federal-reserve-mcp-server#readme",
+  "author": "cyanheads <casey@caseyjhand.com> (https://github.com/cyanheads/federal-reserve-mcp-server#readme)",
   "funding": [
     {
       "type": "github",

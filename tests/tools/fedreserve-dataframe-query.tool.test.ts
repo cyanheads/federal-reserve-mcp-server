@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_dataframe_query tool.
- * @module tests/tools/fred-dataframe-query.tool.test
+ * @fileoverview Tests for the fedreserve_dataframe_query tool.
+ * @module tests/tools/fedreserve-dataframe-query.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredDataframeQueryTool } from '@/mcp-server/tools/definitions/fred-dataframe-query.tool.js';
+import { fedreserveDataframeQueryTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-query.tool.js';
 
 const mockQuery = vi.fn();
 
@@ -13,11 +13,11 @@ vi.mock('@/services/canvas-bridge/canvas-bridge.js', () => ({
   getCanvasBridge: () => ({ query: mockQuery }),
 }));
 
-describe('fredDataframeQueryTool', () => {
+describe('fedreserveDataframeQueryTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
-    ctx = createMockContext({ errors: fredDataframeQueryTool.errors });
+    ctx = createMockContext({ errors: fedreserveDataframeQueryTool.errors });
     mockQuery.mockReset();
   });
 
@@ -33,10 +33,10 @@ describe('fredDataframeQueryTool', () => {
       },
     });
 
-    const input = fredDataframeQueryTool.input.parse({
+    const input = fedreserveDataframeQueryTool.input.parse({
       sql: 'SELECT date, value FROM df_ABC12_DEF34',
     });
-    const result = await fredDataframeQueryTool.handler(input, ctx);
+    const result = await fedreserveDataframeQueryTool.handler(input, ctx);
 
     expect(result.columns).toEqual(['date', 'value']);
     expect(result.row_count).toBe(2);
@@ -58,11 +58,11 @@ describe('fredDataframeQueryTool', () => {
       },
     });
 
-    const input = fredDataframeQueryTool.input.parse({
+    const input = fedreserveDataframeQueryTool.input.parse({
       sql: 'SELECT date, value FROM df_ABC12_DEF34',
       register_as: 'df_XYZ99_PQR77',
     });
-    const result = await fredDataframeQueryTool.handler(input, ctx);
+    const result = await fedreserveDataframeQueryTool.handler(input, ctx);
 
     expect(result.registered_as).toBe('df_XYZ99_PQR77');
     expect(result.expires_at).toBe('2026-05-22T10:00:00.000Z');
@@ -70,9 +70,9 @@ describe('fredDataframeQueryTool', () => {
 
   it('throws canvas_unavailable when bridge not configured', async () => {
     // Test the error contract is declared correctly
-    expect(fredDataframeQueryTool.errors?.some((e) => e.reason === 'canvas_unavailable')).toBe(
-      true,
-    );
+    expect(
+      fedreserveDataframeQueryTool.errors?.some((e) => e.reason === 'canvas_unavailable'),
+    ).toBe(true);
   });
 
   it('format renders a markdown table of results', () => {
@@ -84,7 +84,7 @@ describe('fredDataframeQueryTool', () => {
         { date: '2020-02-01', value: '3.5' },
       ],
     };
-    const blocks = fredDataframeQueryTool.format!(output);
+    const blocks = fedreserveDataframeQueryTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('date');
     expect(text).toContain('value');
@@ -98,7 +98,7 @@ describe('fredDataframeQueryTool', () => {
       row_count: 5000,
       rows: [{ date: '2020-01-01', value: '3.5' }],
     };
-    const blocks = fredDataframeQueryTool.format!(output);
+    const blocks = fedreserveDataframeQueryTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('5000');
     expect(text).toContain('showing 1');
@@ -112,7 +112,7 @@ describe('fredDataframeQueryTool', () => {
       registered_as: 'df_XYZ99_PQR77',
       expires_at: '2026-05-22T10:00:00.000Z',
     };
-    const blocks = fredDataframeQueryTool.format!(output);
+    const blocks = fedreserveDataframeQueryTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('df_XYZ99_PQR77');
   });

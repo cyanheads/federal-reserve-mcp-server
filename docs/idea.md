@@ -1,4 +1,4 @@
-# fred-mcp-server — Idea
+# federal-reserve-mcp-server — Idea
 
 Pre-design seed. Feeds into `design-mcp-server` to produce `docs/design.md`.
 
@@ -26,11 +26,11 @@ Federal Reserve Economic Data (FRED) — the St. Louis Fed's time-series databas
 
 | Tool | Purpose |
 |:-----|:--------|
-| `fred_search_series` | Free-text search across titles, tags, notes → SeriesIDs |
-| `fred_get_observations` | Pull observations for one or more series with date range, frequency, unit transformations (pct change, YoY, log) |
-| `fred_get_series` | Metadata for a series (title, units, frequency, last updated, notes) |
-| `fred_browse_categories` | Walk the category tree (Money, Banking & Finance → Interest Rates → Treasury) |
-| `fred_get_release` | Inspect a release (e.g., Employment Situation) and its associated series |
+| `fedreserve_search_series` | Free-text search across titles, tags, notes → SeriesIDs |
+| `fedreserve_get_observations` | Pull observations for one or more series with date range, frequency, unit transformations (pct change, YoY, log) |
+| `fedreserve_get_series` | Metadata for a series (title, units, frequency, last updated, notes) |
+| `fedreserve_browse_categories` | Walk the category tree (Money, Banking & Finance → Interest Rates → Treasury) |
+| `fedreserve_get_release` | Inspect a release (e.g., Employment Situation) and its associated series |
 
 ## Pairs with
 

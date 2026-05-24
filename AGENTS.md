@@ -1,7 +1,7 @@
 # Agent Protocol
 
-**Server:** @cyanheads/fred-mcp-server
-**Version:** 0.1.6
+**Server:** @cyanheads/federal-reserve-mcp-server
+**Version:** 0.2.0
 **Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.9.6`
 **Engines:** Bun ≥1.3.0, Node ≥24.0.0
 **MCP SDK:** `@modelcontextprotocol/sdk` ^1.29.0
@@ -38,14 +38,14 @@ This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Fe
 
 | Tool | Description |
 |:-----|:------------|
-| `fred_search_series` | Full-text search across FRED series titles, units, frequency, and tags |
-| `fred_get_series` | Fetch metadata for one or more series (up to 50 IDs, parallel upstream requests) |
-| `fred_get_observations` | Fetch date+value observations with date-range, unit transforms, and DataCanvas spillover |
-| `fred_browse_categories` | Navigate the FRED category tree |
-| `fred_get_release` | Inspect a release by ID or name search |
-| `fred_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
-| `fred_dataframe_query` | Run a SELECT against registered DataCanvas dataframes via DuckDB SQL |
-| `fred_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
+| `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags |
+| `fedreserve_get_series` | Fetch metadata for one or more series (up to 50 IDs, parallel upstream requests) |
+| `fedreserve_get_observations` | Fetch date+value observations with date-range, unit transforms, and DataCanvas spillover |
+| `fedreserve_browse_categories` | Navigate the FRED category tree |
+| `fedreserve_get_release` | Inspect a release by ID or name search |
+| `fedreserve_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
+| `fedreserve_dataframe_query` | Run a SELECT against registered DataCanvas dataframes via DuckDB SQL |
+| `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
 
 **Key API facts:**
 - Auth: `FRED_API_KEY` env var (free key from stlouisfed.org)
@@ -74,7 +74,7 @@ This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Fe
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
-export const fredSearchSeriesToolDef = tool('fred_search_series', {
+export const fedreserveSearchSeriesToolDef = tool('fedreserve_search_series', {
   description: 'Search FRED series by full-text query across titles, tags, and notes.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
@@ -102,7 +102,7 @@ export const fredSearchSeriesToolDef = tool('fred_search_series', {
   }),
 
   async handler(input, ctx) {
-    ctx.log.info('Executing fred_search_series', { query: input.query });
+    ctx.log.info('Executing fedreserve_search_series', { query: input.query });
     const result = await getFredApiService().searchSeries(input);
     return result;
   },
@@ -129,7 +129,7 @@ const ServerConfigSchema = z.object({
   datasetTtlSeconds: z.coerce.number().int().positive().default(86400)
     .describe('Sliding TTL for canvas-registered dataframes (seconds).'),
   dataframeDrop: z.coerce.boolean().default(false)
-    .describe('Set to true to expose fred_dataframe_drop.'),
+    .describe('Set to true to expose fedreserve_dataframe_drop.'),
 });
 
 let _config: z.infer<typeof ServerConfigSchema> | undefined;
@@ -172,7 +172,7 @@ Handlers throw — the framework catches, classifies, and formats.
 errors: [
   { reason: 'series_not_found', code: JsonRpcErrorCode.NotFound,
     when: 'Series ID exists in format but FRED returns no data',
-    recovery: 'Verify the series ID with fred_search_series and try again.' },
+    recovery: 'Verify the series ID with fedreserve_search_series and try again.' },
 ],
 async handler(input, ctx) {
   const series = await getFredApiService().getSeries(input.series_id);
@@ -213,14 +213,14 @@ src/
       sql-gate-extras.ts                # Extra SQL gate rules for DuckDB system catalogs
   mcp-server/
     tools/definitions/
-      fred-search-series.tool.ts        # fred_search_series
-      fred-get-series.tool.ts           # fred_get_series
-      fred-get-observations.tool.ts     # fred_get_observations
-      fred-browse-categories.tool.ts    # fred_browse_categories
-      fred-get-release.tool.ts          # fred_get_release
-      fred-dataframe-describe.tool.ts   # fred_dataframe_describe
-      fred-dataframe-query.tool.ts      # fred_dataframe_query
-      fred-dataframe-drop.tool.ts       # fred_dataframe_drop (opt-in)
+      fedreserve-search-series.tool.ts        # fedreserve_search_series
+      fedreserve-get-series.tool.ts           # fedreserve_get_series
+      fedreserve-get-observations.tool.ts     # fedreserve_get_observations
+      fedreserve-browse-categories.tool.ts    # fedreserve_browse_categories
+      fedreserve-get-release.tool.ts          # fedreserve_get_release
+      fedreserve-dataframe-describe.tool.ts   # fedreserve_dataframe_describe
+      fedreserve-dataframe-query.tool.ts      # fedreserve_dataframe_query
+      fedreserve-dataframe-drop.tool.ts       # fedreserve_dataframe_drop (opt-in)
 ```
 
 ---
@@ -229,8 +229,8 @@ src/
 
 | What | Convention | Example |
 |:-----|:-----------|:--------|
-| Files | kebab-case with suffix | `fred-get-series.tool.ts` |
-| Tool/resource/prompt names | snake_case | `fred_get_series` |
+| Files | kebab-case with suffix | `fedreserve-get-series.tool.ts` |
+| Tool/resource/prompt names | snake_case | `fedreserve_get_series` |
 | Directories | kebab-case | `src/services/fred/` |
 | Descriptions | Single string or template literal, no `+` concatenation | `'Fetch metadata for one or more FRED series.'` |
 
@@ -356,7 +356,7 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 - [ ] FRED wrapping: tests include at least one sparse payload case with omitted upstream fields
 - [ ] FRED wrapping: observation values kept as strings (FRED returns them as strings to preserve trailing zeros — don't coerce to float)
 - [ ] Multi-series tools use `Promise.allSettled` with partial success reporting
-- [ ] `fred_get_observations` DataCanvas spillover: multi-series or >500 rows spill to canvas; single short-range returns inline; degrades gracefully when canvas unavailable
+- [ ] `fedreserve_get_observations` DataCanvas spillover: multi-series or >500 rows spill to canvas; single short-range returns inline; degrades gracefully when canvas unavailable
 - [ ] Registered in `createApp()` arrays (directly or via barrel exports)
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
 - [ ] `bun run devcheck` passes

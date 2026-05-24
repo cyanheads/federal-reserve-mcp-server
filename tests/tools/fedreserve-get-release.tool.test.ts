@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_get_release tool.
- * @module tests/tools/fred-get-release.tool.test
+ * @fileoverview Tests for the fedreserve_get_release tool.
+ * @module tests/tools/fedreserve-get-release.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredGetReleaseTool } from '@/mcp-server/tools/definitions/fred-get-release.tool.js';
+import { fedreserveGetReleaseTool } from '@/mcp-server/tools/definitions/fedreserve-get-release.tool.js';
 
 const mockGetRelease = vi.fn();
 const mockGetAllReleases = vi.fn();
@@ -44,11 +44,11 @@ const RAW_SERIES_RESP = {
 
 const FUTURE_DATE = '2030-01-01';
 
-describe('fredGetReleaseTool', () => {
+describe('fedreserveGetReleaseTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
-    ctx = createMockContext({ errors: fredGetReleaseTool.errors });
+    ctx = createMockContext({ errors: fedreserveGetReleaseTool.errors });
     mockGetRelease.mockReset();
     mockGetAllReleases.mockReset();
     mockGetReleaseSeries.mockReset();
@@ -62,8 +62,8 @@ describe('fredGetReleaseTool', () => {
       release_dates: [{ date: FUTURE_DATE, release_id: 49 }],
     });
 
-    const input = fredGetReleaseTool.input.parse({ release_id: 49 });
-    const result = await fredGetReleaseTool.handler(input, ctx);
+    const input = fedreserveGetReleaseTool.input.parse({ release_id: 49 });
+    const result = await fedreserveGetReleaseTool.handler(input, ctx);
 
     expect(result.release.id).toBe(49);
     expect(result.release.name).toBe('Employment Situation');
@@ -80,8 +80,8 @@ describe('fredGetReleaseTool', () => {
     mockGetReleaseSeries.mockResolvedValueOnce(RAW_SERIES_RESP);
     mockGetReleaseDates.mockResolvedValueOnce({ release_dates: [] });
 
-    const input = fredGetReleaseTool.input.parse({ release_search: 'employment situation' });
-    const result = await fredGetReleaseTool.handler(input, ctx);
+    const input = fedreserveGetReleaseTool.input.parse({ release_search: 'employment situation' });
+    const result = await fedreserveGetReleaseTool.handler(input, ctx);
 
     expect(result.release.id).toBe(49);
   });
@@ -91,8 +91,8 @@ describe('fredGetReleaseTool', () => {
       releases: [{ id: 10, name: 'Consumer Price Index' }],
     });
 
-    const input = fredGetReleaseTool.input.parse({ release_search: 'xyzzy nonexistent' });
-    await expect(fredGetReleaseTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetReleaseTool.input.parse({ release_search: 'xyzzy nonexistent' });
+    await expect(fedreserveGetReleaseTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'release_not_found' },
     });
   });
@@ -105,15 +105,15 @@ describe('fredGetReleaseTool', () => {
       ],
     });
 
-    const input = fredGetReleaseTool.input.parse({ release_search: 'employment' });
-    await expect(fredGetReleaseTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetReleaseTool.input.parse({ release_search: 'employment' });
+    await expect(fedreserveGetReleaseTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'ambiguous_release_search' },
     });
   });
 
   it('throws when neither release_id nor release_search provided', async () => {
-    const input = fredGetReleaseTool.input.parse({});
-    await expect(fredGetReleaseTool.handler(input, ctx)).rejects.toThrow();
+    const input = fedreserveGetReleaseTool.input.parse({});
+    await expect(fedreserveGetReleaseTool.handler(input, ctx)).rejects.toThrow();
   });
 
   it('format renders release name, ID, and series list', () => {
@@ -133,7 +133,7 @@ describe('fredGetReleaseTool', () => {
         },
       ],
     };
-    const blocks = fredGetReleaseTool.format!(output);
+    const blocks = fedreserveGetReleaseTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('Employment Situation');
     expect(text).toContain('49');

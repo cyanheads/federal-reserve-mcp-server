@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_get_observations tool.
- * @module tests/tools/fred-get-observations.tool.test
+ * @fileoverview Tests for the fedreserve_get_observations tool.
+ * @module tests/tools/fedreserve-get-observations.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredGetObservationsTool } from '@/mcp-server/tools/definitions/fred-get-observations.tool.js';
+import { fedreserveGetObservationsTool } from '@/mcp-server/tools/definitions/fedreserve-get-observations.tool.js';
 
 const mockGetObservations = vi.fn();
 
@@ -31,19 +31,19 @@ const UNRATE_OBS = {
   ],
 };
 
-describe('fredGetObservationsTool', () => {
+describe('fedreserveGetObservationsTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
-    ctx = createMockContext({ errors: fredGetObservationsTool.errors });
+    ctx = createMockContext({ errors: fedreserveGetObservationsTool.errors });
     mockGetObservations.mockReset();
   });
 
   it('returns inline observations for a single short series', async () => {
     mockGetObservations.mockResolvedValueOnce(UNRATE_OBS);
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
-    const result = await fredGetObservationsTool.handler(input, ctx);
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
+    const result = await fedreserveGetObservationsTool.handler(input, ctx);
 
     expect(result.series).toHaveLength(1);
     expect(result.failed).toHaveLength(0);
@@ -60,8 +60,8 @@ describe('fredGetObservationsTool', () => {
       observations: [{ date: '2020-01-01', value: '3.50' }],
     });
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
-    const result = await fredGetObservationsTool.handler(input, ctx);
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
+    const result = await fedreserveGetObservationsTool.handler(input, ctx);
 
     expect(typeof result.series[0]?.observations[0]?.value).toBe('string');
     expect(result.series[0]?.observations[0]?.value).toBe('3.50');
@@ -70,8 +70,8 @@ describe('fredGetObservationsTool', () => {
   it('throws series_not_found when single series returns no observations and message includes not found', async () => {
     mockGetObservations.mockRejectedValueOnce(new Error('404 not found'));
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: 'MISSING' });
-    await expect(fredGetObservationsTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: 'MISSING' });
+    await expect(fedreserveGetObservationsTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'series_not_found' },
     });
   });
@@ -79,8 +79,8 @@ describe('fredGetObservationsTool', () => {
   it('throws no_observations_in_range for single series with empty observations', async () => {
     mockGetObservations.mockResolvedValueOnce({ ...UNRATE_OBS, observations: [] });
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
-    await expect(fredGetObservationsTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: 'UNRATE' });
+    await expect(fedreserveGetObservationsTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'no_observations_in_range' },
     });
   });
@@ -91,8 +91,8 @@ describe('fredGetObservationsTool', () => {
       observations: [{ date: '2020-01-01', value: '2.1' }],
     });
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: ['UNRATE', 'FEDFUNDS'] });
-    const result = await fredGetObservationsTool.handler(input, ctx);
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: ['UNRATE', 'FEDFUNDS'] });
+    const result = await fedreserveGetObservationsTool.handler(input, ctx);
 
     expect(result.dataset).toBeUndefined();
     expect(result.message).toBeDefined();
@@ -104,8 +104,8 @@ describe('fredGetObservationsTool', () => {
       .mockResolvedValueOnce(UNRATE_OBS)
       .mockRejectedValueOnce(new Error('timeout'));
 
-    const input = fredGetObservationsTool.input.parse({ series_ids: ['UNRATE', 'BAD'] });
-    const result = await fredGetObservationsTool.handler(input, ctx);
+    const input = fedreserveGetObservationsTool.input.parse({ series_ids: ['UNRATE', 'BAD'] });
+    const result = await fedreserveGetObservationsTool.handler(input, ctx);
 
     expect(result.series).toHaveLength(1);
     expect(result.failed).toHaveLength(1);
@@ -130,7 +130,7 @@ describe('fredGetObservationsTool', () => {
       failed: [],
       total_observations: 2,
     };
-    const blocks = fredGetObservationsTool.format!(output);
+    const blocks = fedreserveGetObservationsTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('UNRATE');
     expect(text).toContain('Percent');
@@ -151,7 +151,7 @@ describe('fredGetObservationsTool', () => {
         truncated: false,
       },
     };
-    const blocks = fredGetObservationsTool.format!(output);
+    const blocks = fedreserveGetObservationsTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('df_ABC12_DEF34');
   });

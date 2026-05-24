@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.cyanheads/fred-mcp-server",
+  "name": "io.github.cyanheads/federal-reserve-mcp-server",
   "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP.",
   "repository": {
-    "url": "https://github.com/cyanheads/fred-mcp-server",
+    "url": "https://github.com/cyanheads/federal-reserve-mcp-server",
     "source": "github"
   },
-  "version": "0.1.6",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@cyanheads/fred-mcp-server",
+      "identifier": "@cyanheads/federal-reserve-mcp-server",
       "runtimeHint": "bun",
-      "version": "0.1.6",
+      "version": "0.2.0",
       "packageArguments": [
         {
           "type": "positional",
@@ -47,7 +47,7 @@
         },
         {
           "name": "FRED_DATAFRAME_DROP_ENABLED",
-          "description": "Set to 'true' to expose the fred_dataframe_drop tool.",
+          "description": "Set to 'true' to expose the fedreserve_dataframe_drop tool.",
           "format": "string",
           "isRequired": false,
           "default": "false"
@@ -67,9 +67,9 @@
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@cyanheads/fred-mcp-server",
+      "identifier": "@cyanheads/federal-reserve-mcp-server",
       "runtimeHint": "bun",
-      "version": "0.1.6",
+      "version": "0.2.0",
       "packageArguments": [
         {
           "type": "positional",
@@ -103,7 +103,7 @@
         },
         {
           "name": "FRED_DATAFRAME_DROP_ENABLED",
-          "description": "Set to 'true' to expose the fred_dataframe_drop tool.",
+          "description": "Set to 'true' to expose the fedreserve_dataframe_drop tool.",
           "format": "string",
           "isRequired": false,
           "default": "false"

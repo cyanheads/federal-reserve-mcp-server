@@ -3,14 +3,14 @@
  * createApp() when FRED_DATAFRAME_DROP_ENABLED=true. Idempotent — returns
  * `dropped: false` when nothing matched. TTL handles cleanup in normal
  * operation; this tool is for explicit early reclamation.
- * @module mcp-server/tools/definitions/fred-dataframe-drop
+ * @module mcp-server/tools/definitions/fedreserve-dataframe-drop
  */
 
 import { disabledTool, tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
-export const fredDataframeDropToolDef = tool('fred_dataframe_drop', {
+export const fedreserveDataframeDropToolDef = tool('fedreserve_dataframe_drop', {
   title: 'Drop FRED Dataframe',
   description:
     'Drop a canvas dataframe by name. Idempotent — returns dropped: false when nothing matched. TTL handles cleanup in normal operation; this tool is for explicit early reclamation when an analysis session is complete. Requires CANVAS_PROVIDER_TYPE=duckdb and FRED_DATAFRAME_DROP_ENABLED=true.',
@@ -50,7 +50,7 @@ export const fredDataframeDropToolDef = tool('fred_dataframe_drop', {
       });
     }
 
-    ctx.log.info('fred_dataframe_drop', { name: input.name });
+    ctx.log.info('fedreserve_dataframe_drop', { name: input.name });
     const dropped = await bridge.drop(ctx, input.name);
     return { dropped, name: input.name };
   },
@@ -69,10 +69,10 @@ export const fredDataframeDropToolDef = tool('fred_dataframe_drop', {
  * The enabled check is deferred to index.ts so this module can be imported
  * by the linter without a FRED_API_KEY.
  */
-export function buildFredDataframeDropTool(enabled: boolean) {
+export function buildFedreserveDataframeDropTool(enabled: boolean) {
   return enabled
-    ? fredDataframeDropToolDef
-    : disabledTool(fredDataframeDropToolDef, {
+    ? fedreserveDataframeDropToolDef
+    : disabledTool(fedreserveDataframeDropToolDef, {
         reason: 'Dataframe drop is disabled in this deployment.',
         hint: 'FRED_DATAFRAME_DROP_ENABLED=true',
       });

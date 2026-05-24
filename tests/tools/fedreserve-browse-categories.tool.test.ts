@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_browse_categories tool.
- * @module tests/tools/fred-browse-categories.tool.test
+ * @fileoverview Tests for the fedreserve_browse_categories tool.
+ * @module tests/tools/fedreserve-browse-categories.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredBrowseCategoriesTool } from '@/mcp-server/tools/definitions/fred-browse-categories.tool.js';
+import { fedreserveBrowseCategoriesTool } from '@/mcp-server/tools/definitions/fedreserve-browse-categories.tool.js';
 
 const mockGetCategory = vi.fn();
 const mockGetCategoryChildren = vi.fn();
@@ -19,7 +19,7 @@ vi.mock('@/services/fred/fred-service.js', () => ({
   }),
 }));
 
-describe('fredBrowseCategoriesTool', () => {
+describe('fedreserveBrowseCategoriesTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
@@ -40,8 +40,8 @@ describe('fredBrowseCategoriesTool', () => {
       ],
     });
 
-    const input = fredBrowseCategoriesTool.input.parse({});
-    const result = await fredBrowseCategoriesTool.handler(input, ctx);
+    const input = fedreserveBrowseCategoriesTool.input.parse({});
+    const result = await fedreserveBrowseCategoriesTool.handler(input, ctx);
 
     expect(result.category.id).toBe(0);
     expect(result.category.name).toBe('Categories');
@@ -66,8 +66,8 @@ describe('fredBrowseCategoriesTool', () => {
       ],
     });
 
-    const input = fredBrowseCategoriesTool.input.parse({ category_id: 32992 });
-    const result = await fredBrowseCategoriesTool.handler(input, ctx);
+    const input = fedreserveBrowseCategoriesTool.input.parse({ category_id: 32992 });
+    const result = await fedreserveBrowseCategoriesTool.handler(input, ctx);
 
     expect(result.children).toHaveLength(0);
     expect(result.sample_series).toBeDefined();
@@ -79,8 +79,8 @@ describe('fredBrowseCategoriesTool', () => {
     mockGetCategory.mockResolvedValueOnce({ categories: [] });
     mockGetCategoryChildren.mockResolvedValueOnce({ categories: [] });
 
-    const input = fredBrowseCategoriesTool.input.parse({ category_id: 99999 });
-    await expect(fredBrowseCategoriesTool.handler(input, ctx)).rejects.toThrow('not found');
+    const input = fedreserveBrowseCategoriesTool.input.parse({ category_id: 99999 });
+    await expect(fedreserveBrowseCategoriesTool.handler(input, ctx)).rejects.toThrow('not found');
   });
 
   it('format renders category name and children', () => {
@@ -91,7 +91,7 @@ describe('fredBrowseCategoriesTool', () => {
         { id: 10, name: 'Population' },
       ],
     };
-    const blocks = fredBrowseCategoriesTool.format!(output);
+    const blocks = fedreserveBrowseCategoriesTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('Categories');
     expect(text).toContain('Money, Banking, & Finance');
@@ -111,7 +111,7 @@ describe('fredBrowseCategoriesTool', () => {
         },
       ],
     };
-    const blocks = fredBrowseCategoriesTool.format!(output);
+    const blocks = fedreserveBrowseCategoriesTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('FEDFUNDS');
     expect(text).toContain('Effective Federal Funds Rate');

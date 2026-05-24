@@ -34,7 +34,7 @@ export function assertNoSystemCatalogAccess(sql: string): void {
         reason: 'system_catalog_access',
         catalog: match[0],
         recovery: {
-          hint: 'Query only df_<id> tables. Use fred_dataframe_describe to list available dataframes.',
+          hint: 'Query only df_<id> tables. Use fedreserve_dataframe_describe to list available dataframes.',
         },
       });
     }

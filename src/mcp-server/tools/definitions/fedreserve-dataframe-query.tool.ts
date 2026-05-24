@@ -1,20 +1,20 @@
 /**
  * @fileoverview Run a single-statement SELECT against canvas dataframes
- * registered by fred_get_observations. Layered SQL gate: framework
+ * registered by fedreserve_get_observations. Layered SQL gate: framework
  * (single-statement → SELECT only → plan-walk allowlist + denied table
  * functions) plus bridge-layer deny on DuckDB system catalogs. Optional
  * register_as chains the result as a new dataframe with a fresh TTL.
- * @module mcp-server/tools/definitions/fred-dataframe-query
+ * @module mcp-server/tools/definitions/fedreserve-dataframe-query
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
-export const fredDataframeQueryTool = tool('fred_dataframe_query', {
+export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   title: 'Query FRED Dataframes',
   description:
-    'Run a single-statement SELECT against canvas dataframes registered by fred_get_observations. Standard DuckDB SQL — joins, aggregates, window functions, CTEs all supported. Reference dataframes by the df_<id> handles returned from fred_get_observations or listed by fred_dataframe_describe. Read-only: writes, DDL, DROP, COPY, PRAGMA, ATTACH, and external-file table functions are rejected. System catalogs are denied at the bridge layer. Optional register_as chains the result as a new dataframe with a fresh TTL. Requires CANVAS_PROVIDER_TYPE=duckdb.',
+    'Run a single-statement SELECT against canvas dataframes registered by fedreserve_get_observations. Standard DuckDB SQL — joins, aggregates, window functions, CTEs all supported. Reference dataframes by the df_<id> handles returned from fedreserve_get_observations or listed by fedreserve_dataframe_describe. Read-only: writes, DDL, DROP, COPY, PRAGMA, ATTACH, and external-file table functions are rejected. System catalogs are denied at the bridge layer. Optional register_as chains the result as a new dataframe with a fresh TTL. Requires CANVAS_PROVIDER_TYPE=duckdb.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   errors: [
@@ -90,7 +90,7 @@ export const fredDataframeQueryTool = tool('fred_dataframe_query', {
       ...(input.register_as !== undefined && { registerAs: input.register_as }),
       ...(input.preview !== undefined && { preview: input.preview }),
       rowLimit: input.row_limit,
-      sourceTool: 'fred_dataframe_query',
+      sourceTool: 'fedreserve_dataframe_query',
       queryParams: { sql: input.sql },
     });
 

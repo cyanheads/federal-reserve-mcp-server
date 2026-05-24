@@ -2,7 +2,7 @@
  * @fileoverview Navigate the FRED category tree. Returns child categories and
  * a sample of series when viewing a leaf. Omit category_id to start at the
  * root (ID 0).
- * @module mcp-server/tools/definitions/fred-browse-categories
+ * @module mcp-server/tools/definitions/fedreserve-browse-categories
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
@@ -10,7 +10,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 import type { FredCategoryResponse } from '@/services/fred/types.js';
 
-export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
+export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories', {
   title: 'Browse FRED Categories',
   description:
     'Navigate the FRED category tree. Returns the current category, its child categories, and — when viewing a leaf node with no children — a sample of series within it. Omit category_id to start at the root (ID 0).',
@@ -66,13 +66,13 @@ export const fredBrowseCategoriesTool = tool('fred_browse_categories', {
       )
       .optional()
       .describe(
-        'Sample series when the category has no children (leaf node). Use fred_search_series or fred_get_observations for deeper access.',
+        'Sample series when the category has no children (leaf node). Use fedreserve_search_series or fedreserve_get_observations for deeper access.',
       ),
   }),
 
   async handler(input, ctx) {
     const category_id = input.category_id ?? 0;
-    ctx.log.info('fred_browse_categories', { category_id });
+    ctx.log.info('fedreserve_browse_categories', { category_id });
 
     let categoryResp: FredCategoryResponse;
     let childrenResp: FredCategoryResponse;

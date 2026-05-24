@@ -2,7 +2,7 @@
  * @fileoverview Retrieve metadata for one or more FRED series — title, units,
  * frequency, seasonal adjustment, observation range, popularity, and notes.
  * Returns partial success when some IDs fail.
- * @module mcp-server/tools/definitions/fred-get-series
+ * @module mcp-server/tools/definitions/fedreserve-get-series
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
@@ -22,7 +22,7 @@ const SeriesMetaSchema = z.object({
   notes: z.string().optional().describe('Free-text notes from FRED when provided.'),
 });
 
-export const fredGetSeriesTool = tool('fred_get_series', {
+export const fedreserveGetSeriesTool = tool('fedreserve_get_series', {
   title: 'Get FRED Series Metadata',
   description:
     'Retrieve metadata for one or more FRED series — title, units, frequency, seasonal adjustment status, observation range, popularity, and notes. Accepts up to 50 series IDs. Returns partial success when some IDs fail.',
@@ -33,7 +33,7 @@ export const fredGetSeriesTool = tool('fred_get_series', {
       reason: 'series_not_found',
       code: JsonRpcErrorCode.NotFound,
       when: 'A series ID exists in format but FRED returns no data for it.',
-      recovery: 'Verify the series ID is correct using fred_search_series and try again.',
+      recovery: 'Verify the series ID is correct using fedreserve_search_series and try again.',
     },
     {
       reason: 'partial_failure',
@@ -70,7 +70,7 @@ export const fredGetSeriesTool = tool('fred_get_series', {
 
   async handler(input, ctx) {
     const ids = Array.isArray(input.series_ids) ? input.series_ids : [input.series_ids];
-    ctx.log.info('fred_get_series', { count: ids.length });
+    ctx.log.info('fedreserve_get_series', { count: ids.length });
 
     const results = await Promise.allSettled(
       ids.map((id) => getFredApiService().getSeriesById(id, ctx)),

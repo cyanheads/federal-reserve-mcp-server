@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest a new feature or improvement for fred-mcp-server
+description: Suggest a new feature or improvement for federal-reserve-mcp-server
 labels: ["enhancement"]
 # assignees: ["your-github-username"]  # uncomment to auto-assign new issues
 body:

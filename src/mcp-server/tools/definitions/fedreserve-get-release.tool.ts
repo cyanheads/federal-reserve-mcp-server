@@ -1,7 +1,7 @@
 /**
  * @fileoverview Return metadata and associated series for a FRED release.
  * Accepts a `release_id` integer or a `release_search` text query.
- * @module mcp-server/tools/definitions/fred-get-release
+ * @module mcp-server/tools/definitions/fedreserve-get-release
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
@@ -9,7 +9,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 import type { FredReleaseResponse } from '@/services/fred/types.js';
 
-export const fredGetReleaseTool = tool('fred_get_release', {
+export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
   title: 'Get FRED Release',
   description:
     'Return metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a release_id integer or a release_search text query — release_search performs a substring match across all FRED releases; prefer release_id when you know the ID. Returns release name, link, scheduled dates, and a paginated list of its series. Provide exactly one of release_id or release_search.',
@@ -129,10 +129,10 @@ export const fredGetReleaseTool = tool('fred_get_release', {
 
     if (hasId) {
       releaseId = input.release_id!;
-      ctx.log.info('fred_get_release by id', { release_id: releaseId });
+      ctx.log.info('fedreserve_get_release by id', { release_id: releaseId });
     } else {
       const searchTerm = input.release_search!.trim().toLowerCase();
-      ctx.log.info('fred_get_release by search', { term: searchTerm });
+      ctx.log.info('fedreserve_get_release by search', { term: searchTerm });
 
       const allResp = await getFredApiService().getAllReleases(ctx);
       const matches = (allResp.releases ?? []).filter((r) =>

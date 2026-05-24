@@ -2,8 +2,8 @@
  * @fileoverview Fetch observation data (date + value pairs) for one or more
  * FRED series over a date range. Multi-series or >500-row results spill to a
  * DataCanvas table and return a `df_<id>` handle for SQL querying via
- * fred_dataframe_query. Degrades gracefully when canvas is unavailable.
- * @module mcp-server/tools/definitions/fred-get-observations
+ * fedreserve_dataframe_query. Degrades gracefully when canvas is unavailable.
+ * @module mcp-server/tools/definitions/fedreserve-get-observations
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
@@ -37,10 +37,10 @@ const ObservationSchema = z.object({
     .describe('Observation value as a string (preserves trailing zeros; "." for missing).'),
 });
 
-export const fredGetObservationsTool = tool('fred_get_observations', {
+export const fedreserveGetObservationsTool = tool('fedreserve_get_observations', {
   title: 'Get FRED Series Observations',
   description:
-    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a DataCanvas table — the response includes a `dataset` field with the handle to query via fred_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
+    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a DataCanvas table — the response includes a `dataset` field with the handle to query via fedreserve_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
   annotations: { readOnlyHint: true, openWorldHint: false },
 
   errors: [
@@ -48,7 +48,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       reason: 'series_not_found',
       code: JsonRpcErrorCode.NotFound,
       when: 'A series ID is not found on FRED.',
-      recovery: 'Verify the series ID using fred_search_series and try again.',
+      recovery: 'Verify the series ID using fedreserve_search_series and try again.',
     },
     {
       reason: 'frequency_too_high',
@@ -120,7 +120,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       .string()
       .optional()
       .describe(
-        'Optional canvas ID from a prior fred_get_observations call. Omit to create a fresh table; provide to append to an existing canvas.',
+        'Optional canvas ID from a prior fedreserve_get_observations call. Omit to create a fresh table; provide to append to an existing canvas.',
       ),
   }),
 
@@ -157,7 +157,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       .object({
         name: z
           .string()
-          .describe('Canvas table name (df_XXXXX_XXXXX). Pass to fred_dataframe_query.'),
+          .describe('Canvas table name (df_XXXXX_XXXXX). Pass to fedreserve_dataframe_query.'),
         row_count: z.number().describe('Total rows registered in the canvas table.'),
         expires_at: z.string().describe('ISO 8601 expiry timestamp.'),
         preview_rows: z
@@ -169,7 +169,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
       })
       .optional()
       .describe(
-        'Canvas dataset handle — present when results spilled to canvas (multi-series or >500 rows). Pass `name` to fred_dataframe_query for SQL access.',
+        'Canvas dataset handle — present when results spilled to canvas (multi-series or >500 rows). Pass `name` to fedreserve_dataframe_query for SQL access.',
       ),
     total_observations: z.number().describe('Total observation count across all series.'),
     message: z
@@ -182,7 +182,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
 
   async handler(input, ctx) {
     const ids = Array.isArray(input.series_ids) ? input.series_ids : [input.series_ids];
-    ctx.log.info('fred_get_observations', { count: ids.length });
+    ctx.log.info('fedreserve_get_observations', { count: ids.length });
 
     const sharedParams = {
       ...(input.observation_start && { observation_start: input.observation_start }),
@@ -285,7 +285,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
 
       const registered = await bridge.registerDataframe(ctx, {
         rows: allRows,
-        sourceTool: 'fred_get_observations',
+        sourceTool: 'fedreserve_get_observations',
         queryParams: {
           series_ids: ids,
           ...sharedParams,
@@ -340,7 +340,7 @@ export const fredGetObservationsTool = tool('fred_get_observations', {
         `Rows: ${result.dataset.row_count} | Expires: ${result.dataset.expires_at} | Preview rows: ${result.dataset.preview_rows} | Truncated: ${result.dataset.truncated}`,
       );
       lines.push(
-        'Pass the dataset name to `fred_dataframe_query` for SQL access to the full result set.\n',
+        'Pass the dataset name to `fedreserve_dataframe_query` for SQL access to the full result set.\n',
       );
     }
     if (result.message) {

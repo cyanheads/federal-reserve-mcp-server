@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>@cyanheads/fred-mcp-server</h1>
+  <h1>@cyanheads/federal-reserve-mcp-server</h1>
   <p><b>Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.</b>
   <div>8 Tools</div>
   </p>
@@ -7,9 +7,9 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.6-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/fred-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/fred-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/fred-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.2.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/federal-reserve-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/federal-reserve-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/federal-reserve-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
-[![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/fred-mcp-server/releases/latest/download/fred-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=fred-mcp-server&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBjeWFuaGVhZHMvZnJlZC1tY3Atc2VydmVyIl0sImVudiI6eyJGUkVEX0FQSV9LRVkiOiJ5b3VyLWFwaS1rZXkifX0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22fred-mcp-server%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40cyanheads/fred-mcp-server%22%5D%2C%22env%22%3A%7B%22FRED_API_KEY%22%3A%22your-api-key%22%7D%7D)
+[![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/federal-reserve-mcp-server/releases/latest/download/federal-reserve-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=federal-reserve-mcp-server&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBjeWFuaGVhZHMvZmVkZXJhbC1yZXNlcnZlLW1jcC1zZXJ2ZXIiXX0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22federal-reserve-mcp-server%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40cyanheads/federal-reserve-mcp-server%22%5D%7D)
 
 [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-67E8F9?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)
 
@@ -23,16 +23,16 @@ Five FRED tools plus three DataCanvas tools for querying spilled observation res
 
 | Tool | Description |
 |:-----|:------------|
-| `fred_search_series` | Full-text search across FRED series titles, units, frequency, and tags — returns matching series IDs with metadata |
-| `fred_get_series` | Fetch metadata for one or more series (title, units, frequency, seasonal adjustment, observation range) |
-| `fred_get_observations` | Fetch date+value observation data for one or more series with date-range filtering and unit transformations |
-| `fred_browse_categories` | Navigate the FRED category tree; drill into a category to see child categories and a series sample |
-| `fred_get_release` | Look up a FRED release by ID or name search — returns release metadata and its associated series list |
-| `fred_dataframe_describe` | List active DataCanvas dataframes registered by this server (canvas IDs, row counts, schemas) |
-| `fred_dataframe_query` | Run a SELECT query against a registered DataCanvas dataframe |
-| `fred_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
+| `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags — returns matching series IDs with metadata |
+| `fedreserve_get_series` | Fetch metadata for one or more series (title, units, frequency, seasonal adjustment, observation range) |
+| `fedreserve_get_observations` | Fetch date+value observation data for one or more series with date-range filtering and unit transformations |
+| `fedreserve_browse_categories` | Navigate the FRED category tree; drill into a category to see child categories and a series sample |
+| `fedreserve_get_release` | Look up a FRED release by ID or name search — returns release metadata and its associated series list |
+| `fedreserve_dataframe_describe` | List active DataCanvas dataframes registered by this server (canvas IDs, row counts, schemas) |
+| `fedreserve_dataframe_query` | Run a SELECT query against a registered DataCanvas dataframe |
+| `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
 
-### `fred_search_series`
+### `fedreserve_search_series`
 
 Search for FRED series by free-text query across titles, tags, and notes.
 
@@ -40,11 +40,11 @@ Search for FRED series by free-text query across titles, tags, and notes.
 - Post-search filtering by frequency, units, or seasonal adjustment status
 - Tag-name filtering (semicolon-delimited list)
 - Pagination via `limit` and `offset`
-- To find series for a specific release, use `fred_get_release` instead
+- To find series for a specific release, use `fedreserve_get_release` instead
 
 ---
 
-### `fred_get_series`
+### `fedreserve_get_series`
 
 Fetch metadata for one or more FRED series.
 
@@ -54,7 +54,7 @@ Fetch metadata for one or more FRED series.
 
 ---
 
-### `fred_get_observations`
+### `fedreserve_get_observations`
 
 Fetch observation data (date + value pairs) for one or more series.
 
@@ -62,12 +62,12 @@ Fetch observation data (date + value pairs) for one or more series.
 - Date-range filtering with ISO 8601 dates (`observation_start`, `observation_end`)
 - FRED's native unit transformations: `lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`
 - Frequency downsampling with configurable aggregation method (`avg`, `sum`, `eop`)
-- Multi-series or >500-row results spill to a DataCanvas table; response includes a `dataset.name` handle for SQL querying via `fred_dataframe_query`
+- Multi-series or >500-row results spill to a DataCanvas table; response includes a `dataset.name` handle for SQL querying via `fedreserve_dataframe_query`
 - Degrades gracefully when DataCanvas is unavailable — returns inline preview with row count
 
 ---
 
-### `fred_browse_categories`
+### `fedreserve_browse_categories`
 
 Navigate the FRED category hierarchy.
 
@@ -77,7 +77,7 @@ Navigate the FRED category hierarchy.
 
 ---
 
-### `fred_get_release`
+### `fedreserve_get_release`
 
 Inspect a FRED data release and its associated series.
 
@@ -101,7 +101,7 @@ FRED-specific:
 
 - Read-only access to the St. Louis Fed's FRED API (`api.stlouisfed.org/fred`)
 - Parallel multi-series fetching via `Promise.allSettled` with partial success reporting
-- DataCanvas spillover for multi-series or large observation results — spilled tables queryable via `fred_dataframe_query`
+- DataCanvas spillover for multi-series or large observation results — spilled tables queryable via `fedreserve_dataframe_query`
 - Retry with backoff and 429 rate-limit detection against FRED's 120 req/min limit
 - FRED's native unit transformations delegated server-side for precision against the full series history
 
@@ -112,10 +112,10 @@ Add the following to your MCP client configuration file. Obtain a free FRED API 
 ```json
 {
   "mcpServers": {
-    "fred": {
+    "federal-reserve": {
       "type": "stdio",
       "command": "bunx",
-      "args": ["@cyanheads/fred-mcp-server@latest"],
+      "args": ["@cyanheads/federal-reserve-mcp-server@latest"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_LOG_LEVEL": "info",
@@ -131,10 +131,10 @@ Or with npx (no Bun required):
 ```json
 {
   "mcpServers": {
-    "fred": {
+    "federal-reserve": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@cyanheads/fred-mcp-server@latest"],
+      "args": ["-y", "@cyanheads/federal-reserve-mcp-server@latest"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_LOG_LEVEL": "info",
@@ -150,14 +150,14 @@ Or with Docker:
 ```json
 {
   "mcpServers": {
-    "fred": {
+    "federal-reserve": {
       "type": "stdio",
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
         "-e", "MCP_TRANSPORT_TYPE=stdio",
         "-e", "FRED_API_KEY=your-api-key",
-        "ghcr.io/cyanheads/fred-mcp-server:latest"
+        "ghcr.io/cyanheads/federal-reserve-mcp-server:latest"
       ]
     }
   }
@@ -181,13 +181,13 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 FRED_API_KEY=... bun run start:http
 1. **Clone the repository:**
 
 ```sh
-git clone https://github.com/cyanheads/fred-mcp-server.git
+git clone https://github.com/cyanheads/federal-reserve-mcp-server.git
 ```
 
 2. **Navigate into the directory:**
 
 ```sh
-cd fred-mcp-server
+cd federal-reserve-mcp-server
 ```
 
 3. **Install dependencies:**
@@ -212,7 +212,7 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 | `FRED_API_KEY` | **Required.** API key from [stlouisfed.org](https://research.stlouisfed.org/docs/api/api_key.html). | — |
 | `FRED_BASE_URL` | Override the FRED API base URL. | `https://api.stlouisfed.org/fred` |
 | `FRED_DATASET_TTL_SECONDS` | Sliding TTL for DataCanvas-registered observation tables (seconds). | `86400` |
-| `FRED_DATAFRAME_DROP_ENABLED` | Set `true` to expose the `fred_dataframe_drop` tool. | `false` |
+| `FRED_DATAFRAME_DROP_ENABLED` | Set `true` to expose the `fedreserve_dataframe_drop` tool. | `false` |
 | `CANVAS_PROVIDER_TYPE` | Set to `duckdb` to enable DataCanvas SQL querying for observation results. | — |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for HTTP server. | `3010` |
@@ -251,11 +251,11 @@ See [`.env.example`](./.env.example) for the full list of optional overrides.
 ### Docker
 
 ```sh
-docker build -t fred-mcp-server .
-docker run --rm -e FRED_API_KEY=your-key -e MCP_TRANSPORT_TYPE=http -p 3010:3010 fred-mcp-server
+docker build -t federal-reserve-mcp-server .
+docker run --rm -e FRED_API_KEY=your-key -e MCP_TRANSPORT_TYPE=http -p 3010:3010 federal-reserve-mcp-server
 ```
 
-The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `/var/log/fred-mcp-server`. OpenTelemetry peer dependencies are installed by default — build with `--build-arg OTEL_ENABLED=false` to omit them.
+The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `/var/log/federal-reserve-mcp-server`. OpenTelemetry peer dependencies are installed by default — build with `--build-arg OTEL_ENABLED=false` to omit them.
 
 ## Project structure
 

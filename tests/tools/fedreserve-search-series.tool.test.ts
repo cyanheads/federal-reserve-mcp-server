@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_search_series tool.
- * @module tests/tools/fred-search-series.tool.test
+ * @fileoverview Tests for the fedreserve_search_series tool.
+ * @module tests/tools/fedreserve-search-series.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredSearchSeriesTool } from '@/mcp-server/tools/definitions/fred-search-series.tool.js';
+import { fedreserveSearchSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-search-series.tool.js';
 
 vi.mock('@/services/fred/fred-service.js', () => ({
   getFredApiService: () => ({
@@ -37,7 +37,7 @@ vi.mock('@/services/fred/fred-service.js', () => ({
   }),
 }));
 
-describe('fredSearchSeriesTool', () => {
+describe('fedreserveSearchSeriesTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
@@ -45,8 +45,8 @@ describe('fredSearchSeriesTool', () => {
   });
 
   it('returns matching series with all required fields', async () => {
-    const input = fredSearchSeriesTool.input.parse({ query: 'unemployment' });
-    const result = await fredSearchSeriesTool.handler(input, ctx);
+    const input = fedreserveSearchSeriesTool.input.parse({ query: 'unemployment' });
+    const result = await fedreserveSearchSeriesTool.handler(input, ctx);
 
     expect(result.count).toBe(2);
     expect(result.series).toHaveLength(2);
@@ -60,8 +60,8 @@ describe('fredSearchSeriesTool', () => {
   });
 
   it('preserves optional popularity field from sparse upstream', async () => {
-    const input = fredSearchSeriesTool.input.parse({ query: 'unemployment' });
-    const result = await fredSearchSeriesTool.handler(input, ctx);
+    const input = fedreserveSearchSeriesTool.input.parse({ query: 'unemployment' });
+    const result = await fedreserveSearchSeriesTool.handler(input, ctx);
 
     // U6RATE has no popularity in the fixture
     expect(result.series[1]?.popularity).toBeUndefined();
@@ -86,7 +86,7 @@ describe('fredSearchSeriesTool', () => {
         },
       ],
     };
-    const blocks = fredSearchSeriesTool.format!(output);
+    const blocks = fedreserveSearchSeriesTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('UNRATE');
     expect(text).toContain('Unemployment Rate');
@@ -97,7 +97,7 @@ describe('fredSearchSeriesTool', () => {
   });
 
   it('format shows empty message when no results', () => {
-    const blocks = fredSearchSeriesTool.format!({
+    const blocks = fedreserveSearchSeriesTool.format!({
       count: 0,
       offset: 0,
       limit: 1000,

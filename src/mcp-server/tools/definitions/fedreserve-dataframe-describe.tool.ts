@@ -1,18 +1,18 @@
 /**
- * @fileoverview List canvas dataframes materialized by fred_get_observations,
+ * @fileoverview List canvas dataframes materialized by fedreserve_get_observations,
  * with provenance, TTL, column schema, and row count. Lazy-sweeps expired
  * tables before responding.
- * @module mcp-server/tools/definitions/fred-dataframe-describe
+ * @module mcp-server/tools/definitions/fedreserve-dataframe-describe
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
-export const fredDataframeDescribeTool = tool('fred_dataframe_describe', {
+export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_describe', {
   title: 'Describe FRED Dataframes',
   description:
-    'List canvas dataframes materialized by fred_get_observations, with provenance, TTL, column schema, and row count. Optionally filter to a single dataframe by name. Requires CANVAS_PROVIDER_TYPE=duckdb.',
+    'List canvas dataframes materialized by fedreserve_get_observations, with provenance, TTL, column schema, and row count. Optionally filter to a single dataframe by name. Requires CANVAS_PROVIDER_TYPE=duckdb.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   errors: [

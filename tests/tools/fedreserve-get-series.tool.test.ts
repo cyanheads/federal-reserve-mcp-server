@@ -1,11 +1,11 @@
 /**
- * @fileoverview Tests for the fred_get_series tool.
- * @module tests/tools/fred-get-series.tool.test
+ * @fileoverview Tests for the fedreserve_get_series tool.
+ * @module tests/tools/fedreserve-get-series.tool.test
  */
 
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fredGetSeriesTool } from '@/mcp-server/tools/definitions/fred-get-series.tool.js';
+import { fedreserveGetSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-get-series.tool.js';
 
 const mockGetSeriesById = vi.fn();
 
@@ -27,19 +27,19 @@ const UNRATE_RAW = {
   popularity: 95,
 };
 
-describe('fredGetSeriesTool', () => {
+describe('fedreserveGetSeriesTool', () => {
   let ctx: ReturnType<typeof createMockContext>;
 
   beforeEach(() => {
-    ctx = createMockContext({ errors: fredGetSeriesTool.errors });
+    ctx = createMockContext({ errors: fedreserveGetSeriesTool.errors });
     mockGetSeriesById.mockReset();
   });
 
   it('returns metadata for a single series ID string', async () => {
     mockGetSeriesById.mockResolvedValueOnce({ seriess: [UNRATE_RAW] });
 
-    const input = fredGetSeriesTool.input.parse({ series_ids: 'UNRATE' });
-    const result = await fredGetSeriesTool.handler(input, ctx);
+    const input = fedreserveGetSeriesTool.input.parse({ series_ids: 'UNRATE' });
+    const result = await fedreserveGetSeriesTool.handler(input, ctx);
 
     expect(result.series).toHaveLength(1);
     expect(result.failed).toHaveLength(0);
@@ -61,8 +61,8 @@ describe('fredGetSeriesTool', () => {
       .mockResolvedValueOnce({ seriess: [UNRATE_RAW] })
       .mockRejectedValueOnce(new Error('Network timeout'));
 
-    const input = fredGetSeriesTool.input.parse({ series_ids: ['UNRATE', 'BOGUS'] });
-    const result = await fredGetSeriesTool.handler(input, ctx);
+    const input = fedreserveGetSeriesTool.input.parse({ series_ids: ['UNRATE', 'BOGUS'] });
+    const result = await fedreserveGetSeriesTool.handler(input, ctx);
 
     expect(result.series).toHaveLength(1);
     expect(result.series[0]?.id).toBe('UNRATE');
@@ -74,8 +74,8 @@ describe('fredGetSeriesTool', () => {
   it('throws series_not_found for a single series that returns empty seriess', async () => {
     mockGetSeriesById.mockResolvedValueOnce({ seriess: [] });
 
-    const input = fredGetSeriesTool.input.parse({ series_ids: 'DOESNOTEXIST' });
-    await expect(fredGetSeriesTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetSeriesTool.input.parse({ series_ids: 'DOESNOTEXIST' });
+    await expect(fedreserveGetSeriesTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'series_not_found' },
     });
   });
@@ -85,8 +85,8 @@ describe('fredGetSeriesTool', () => {
       .mockRejectedValueOnce(new Error('404'))
       .mockRejectedValueOnce(new Error('404'));
 
-    const input = fredGetSeriesTool.input.parse({ series_ids: ['BAD1', 'BAD2'] });
-    await expect(fredGetSeriesTool.handler(input, ctx)).rejects.toMatchObject({
+    const input = fedreserveGetSeriesTool.input.parse({ series_ids: ['BAD1', 'BAD2'] });
+    await expect(fedreserveGetSeriesTool.handler(input, ctx)).rejects.toMatchObject({
       data: { reason: 'partial_failure' },
     });
   });
@@ -95,8 +95,8 @@ describe('fredGetSeriesTool', () => {
     const sparse = { id: 'SPARSE', title: 'Sparse Series' };
     mockGetSeriesById.mockResolvedValueOnce({ seriess: [sparse] });
 
-    const input = fredGetSeriesTool.input.parse({ series_ids: 'SPARSE' });
-    const result = await fredGetSeriesTool.handler(input, ctx);
+    const input = fedreserveGetSeriesTool.input.parse({ series_ids: 'SPARSE' });
+    const result = await fedreserveGetSeriesTool.handler(input, ctx);
 
     expect(result.series[0]?.popularity).toBeUndefined();
     expect(result.series[0]?.notes).toBeUndefined();
@@ -117,7 +117,7 @@ describe('fredGetSeriesTool', () => {
       ],
       failed: [],
     };
-    const blocks = fredGetSeriesTool.format!(output);
+    const blocks = fedreserveGetSeriesTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('UNRATE');
     expect(text).toContain('Unemployment Rate');
@@ -130,7 +130,7 @@ describe('fredGetSeriesTool', () => {
       series: [],
       failed: [{ id: 'BOGUS', error: 'not found' }],
     };
-    const blocks = fredGetSeriesTool.format!(output);
+    const blocks = fedreserveGetSeriesTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('BOGUS');
     expect(text).toContain('not found');

@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in fred-mcp-server
+description: Report a bug in federal-reserve-mcp-server
 labels: ["bug"]
 # assignees: ["your-github-username"]  # uncomment to auto-assign new issues
 body:

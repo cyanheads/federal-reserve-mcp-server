@@ -187,7 +187,7 @@ export class CanvasBridge {
       const ttlMs = getServerConfig().datasetTtlSeconds * 1000;
       meta = {
         tableName: result.tableName,
-        sourceTool: options.sourceTool ?? 'fred_dataframe_query',
+        sourceTool: options.sourceTool ?? 'fedreserve_dataframe_query',
         queryParams: options.queryParams ?? { sql },
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + ttlMs).toISOString(),

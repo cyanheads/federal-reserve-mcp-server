@@ -1,16 +1,16 @@
 /**
  * @fileoverview Full-text search across FRED series titles, units, frequency,
  * and tags. Entry point for resolving economic topics to series IDs.
- * @module mcp-server/tools/definitions/fred-search-series
+ * @module mcp-server/tools/definitions/fedreserve-search-series
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
-export const fredSearchSeriesTool = tool('fred_search_series', {
+export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
   title: 'Search FRED Series',
   description:
-    'Search FRED series by full-text query across titles, tags, and notes. Returns matching series IDs with titles, units, frequency, and last-updated dates for use in follow-up observation or metadata calls. Supports post-search filtering by frequency, units, or seasonal adjustment status. To find series for a specific release, use fred_get_release instead.',
+    'Search FRED series by full-text query across titles, tags, and notes. Returns matching series IDs with titles, units, frequency, and last-updated dates for use in follow-up observation or metadata calls. Supports post-search filtering by frequency, units, or seasonal adjustment status. To find series for a specific release, use fedreserve_get_release instead.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -65,7 +65,7 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
   }),
 
   async handler(input, ctx) {
-    ctx.log.info('fred_search_series', { query: input.query });
+    ctx.log.info('fedreserve_search_series', { query: input.query });
     const resp = await getFredApiService().searchSeries(
       {
         query: input.query,
@@ -114,7 +114,7 @@ export const fredSearchSeriesTool = tool('fred_search_series', {
       return [
         {
           type: 'text',
-          text: `No series found for "${result.query}"${filterPart}. Try broadening the search term, removing filters, or using fred_browse_categories to explore available series.`,
+          text: `No series found for "${result.query}"${filterPart}. Try broadening the search term, removing filters, or using fedreserve_browse_categories to explore available series.`,
         },
       ];
     }
