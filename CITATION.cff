@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: federal-reserve-mcp-server
+abstract: "Model Context Protocol (MCP) server for the FRED API, providing search and retrieval of ~800K Federal Reserve economic time-series datasets."
+type: software
+authors:
+  - family-names: Hand
+    given-names: Casey
+    orcid: "https://orcid.org/0009-0009-3726-568X"
+repository-code: "https://github.com/cyanheads/federal-reserve-mcp-server"
+license: Apache-2.0
+keywords:
+  - mcp
+  - model-context-protocol
+  - fred
+  - federal-reserve
+  - economic-data
+  - time-series

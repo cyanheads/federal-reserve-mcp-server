@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Guards framework source against three SDK-coupling antipatterns
- * tempting to reach for when fixing tool input-validation error shape (#66) or
- * similar SDK-adjacent bugs. Each rule is narrow and mechanical — the goal is to
- * pin an architectural decision so it does not have to be re-litigated per PR.
+ * @fileoverview Guards against framework antipatterns via `git grep` over
+ * `src/`. Rules 1–3 are SDK-coupling regressions scoped to framework-internal
+ * paths — they no-op in consumer projects, where those paths either don't exist
+ * or hold consumer code under different conventions. Rule 4 (`z.coerce.boolean()`)
+ * is intentionally consumer-facing: it catches the env-boolean footgun in both
+ * framework and scaffolded-server config. Shipped to consumers via
+ * `package.json` `files:` because `devcheck` invokes it. Defense-in-depth:
+ * harmless when nothing matches, catches real regressions.
  *
  * Rules:
  *   1. Framework must not downgrade the Zod `inputSchema` passed to
@@ -19,6 +23,11 @@
  *      `"Input validation error"`) is brittle across SDK versions. Any fix for
  *      #66 that intervenes at transport should use a structural signal, not a
  *      string match.
+ *   4. `z.coerce.boolean()` on an env flag can't be turned off through the
+ *      environment — `Boolean("false") === true`, so `"false"`/`"0"`/`"no"`
+ *      all coerce to `true` and the only `false` is omitting the variable.
+ *      Use `z.stringbool()` (parses `true/false/1/0/yes/no/on/off`, rejects
+ *      the rest). Scoped to `src/` so it fires in consumer config too.
  *
  * Runs standalone (`bun run scripts/check-framework-antipatterns.ts`) and as
  * a devcheck step.
@@ -58,6 +67,13 @@ const RULES: Rule[] = [
     pathspec: ['src/mcp-server/transports/'],
     message: 'Matching SDK error text in transport layer is brittle across SDK versions',
   },
+  {
+    id: 'coerce-boolean-env-flag',
+    pattern: 'z\\.coerce\\.boolean\\(\\)',
+    pathspec: ['src/', ':!**/*.test.ts'],
+    message:
+      'z.coerce.boolean() can\'t be disabled via env (Boolean("false") is true) — use z.stringbool() for boolean env flags',
+  },
 ];
 
 interface Finding {
@@ -66,6 +82,16 @@ interface Finding {
   lineNo: number;
   ruleId: string;
   ruleMessage: string;
+}
+
+/**
+ * A matched line that is itself a comment is a mention (e.g. JSDoc naming the
+ * antipattern to document the rule), not a real usage. Real violations are
+ * code. Skipping comment lines keeps the rules sound when docs name the pattern.
+ */
+function isCommentLine(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
 }
 
 function runRule(rule: Rule): Finding[] {
@@ -93,7 +119,8 @@ function runRule(rule: Rule): Finding[] {
       const lineNo = Number(raw.slice(firstColon + 1, secondColon));
       const line = raw.slice(secondColon + 1);
       return { file, lineNo, line, ruleId: rule.id, ruleMessage: rule.message };
-    });
+    })
+    .filter((finding) => !isCommentLine(finding.line));
 }
 
 const findings = RULES.flatMap(runRule);

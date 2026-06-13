@@ -165,6 +165,8 @@ async function main(): Promise<void> {
     prompts,
     serverJson,
     packageJson,
+    // fedreserve_search_series exposes count/offset/limit — pagination, not silent truncation
+    truncationAllowlist: ['fedreserve_search_series'],
   });
 
   for (const w of report.warnings) {
