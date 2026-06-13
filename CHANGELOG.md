@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.1](changelog/0.2.x/0.2.1.md) — 2026-06-12
+
+Maintenance: adopt @cyanheads/mcp-ts-core 0.10.6 — framework system-catalog SQL gate, stringbool config coercion, explicit createApp identity.
+
 ## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-05-24 · ⚠️ Breaking
 
 Rename: repo, npm package, and all tool names changed from fred_* to fedreserve_* (breaking for tool-name references).
