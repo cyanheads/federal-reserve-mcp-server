@@ -23,6 +23,8 @@ import { initFredApiService } from './services/fred/fred-service.js';
 const { dataframeDrop } = getServerConfig();
 
 await createApp({
+  name: 'federal-reserve-mcp-server',
+  title: 'federal-reserve-mcp-server',
   tools: [
     fedreserveSearchSeriesTool,
     fedreserveGetSeriesTool,

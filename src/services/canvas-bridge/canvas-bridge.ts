@@ -11,6 +11,7 @@
 
 import type { Context } from '@cyanheads/mcp-ts-core';
 import {
+  assertNoSystemCatalogs,
   type CanvasInstance,
   type ColumnSchema,
   type DataCanvas,
@@ -20,7 +21,6 @@ import {
 import type { RequestContextLike } from '@cyanheads/mcp-ts-core/utils';
 import { idGenerator } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
-import { assertNoSystemCatalogAccess } from './sql-gate-extras.js';
 
 /** Per-table provenance + TTL metadata persisted in `ctx.state`. */
 export interface DataframeMeta {
@@ -75,13 +75,12 @@ const CANVAS_ID_KEY = 'canvas-id';
 const TABLE_NAME_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /**
- * Walk a sample of rows, infer column types, force every column to
- * `nullable: true`. FRED observation values are strings and can be "." for
- * missing; DuckDB rolls back the appender batch on the first null in a NOT NULL
- * column seen past the schema-sniff window.
+ * Infer column schema from rows. FRED observation values are strings and can be
+ * "." for missing; all columns are nullable (framework `inferSchemaFromRows`
+ * always emits `nullable: true` as of mcp-ts-core 0.10.4).
  */
 export function deriveAllNullableSchema(rows: Record<string, unknown>[]): ColumnSchema[] {
-  return inferSchemaFromRows(rows).map((col) => ({ ...col, nullable: true }));
+  return inferSchemaFromRows(rows);
 }
 
 export class CanvasBridge {
@@ -169,7 +168,7 @@ export class CanvasBridge {
     sql: string,
     options: BridgeQueryOptions = {},
   ): Promise<{ result: QueryResult; meta?: DataframeMeta }> {
-    assertNoSystemCatalogAccess(sql);
+    assertNoSystemCatalogs(sql);
     await this.sweepExpired(ctx);
     const instance = await this.acquireSharedCanvas(ctx);
 

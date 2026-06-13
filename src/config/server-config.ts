@@ -21,8 +21,8 @@ const ServerConfigSchema = z.object({
     .positive()
     .default(86400)
     .describe('Per-table sliding TTL for canvas-registered dataframes (seconds).'),
-  dataframeDrop: z.coerce
-    .boolean()
+  dataframeDrop: z
+    .stringbool()
     .default(false)
     .describe('Set to true to expose fedreserve_dataframe_drop.'),
 });
