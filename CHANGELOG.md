@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.2](changelog/0.2.x/0.2.2.md) — 2026-06-20
+
+Server-level instructions advertised in the MCP initialize response; maintenance adopt @cyanheads/mcp-ts-core 0.10.9.
+
 ## [0.2.1](changelog/0.2.x/0.2.1.md) — 2026-06-12
 
 Maintenance: adopt @cyanheads/mcp-ts-core 0.10.6 — framework system-catalog SQL gate, stringbool config coercion, explicit createApp identity.

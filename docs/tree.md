@@ -1,6 +1,6 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-06-13 04:54:29
+Generated on: 2026-06-20 19:03:37
 
 ```text
 federal-reserve-mcp-server/
@@ -23,6 +23,7 @@ federal-reserve-mcp-server/
 ├── scripts/
 │   ├── build-changelog.ts
 │   ├── build.ts
+│   ├── check-dependency-specifiers.ts
 │   ├── check-docs-sync.ts
 │   ├── check-framework-antipatterns.ts
 │   ├── check-skill-versions.ts
