@@ -25,6 +25,8 @@ const { dataframeDrop } = getServerConfig();
 await createApp({
   name: 'federal-reserve-mcp-server',
   title: 'federal-reserve-mcp-server',
+  instructions:
+    "Use the fedreserve_* tools to query FRED economic time series (Federal Reserve Bank of St. Louis); a free FRED_API_KEY is required. Discover series IDs via fedreserve_search_series, fedreserve_browse_categories, or fedreserve_get_release, then pull date+value data with fedreserve_get_observations (metadata via fedreserve_get_series). Series are keyed by FRED ID like UNRATE; observation values stay strings — preserve trailing zeros, don't coerce. Multi-series or large pulls spill to a DataCanvas table queried with fedreserve_dataframe_query.",
   tools: [
     fedreserveSearchSeriesTool,
     fedreserveGetSeriesTool,
