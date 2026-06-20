@@ -107,9 +107,8 @@ const violations: { file: string; version: string }[] = [];
 for (const file of changed) {
   const oldContent = headContent(file);
   if (oldContent === null) continue; // new skill — no prior version to compare
-  const absPath = resolve(ROOT, file);
-  if (!existsSync(absPath)) continue; // deleted skill — no new content to compare
-  const newContent = readFileSync(absPath, 'utf-8');
+  if (!existsSync(resolve(ROOT, file))) continue; // deleted in worktree — no body to compare, can't violate
+  const newContent = readFileSync(resolve(ROOT, file), 'utf-8');
 
   if (!bodiesDiffer(extractBody(oldContent), extractBody(newContent))) continue; // whitespace-only
 
