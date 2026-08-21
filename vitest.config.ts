@@ -6,8 +6,9 @@
  *
  * @module vitest.config
  */
-import { defineConfig, mergeConfig } from 'vitest/config';
+
 import coreConfig from '@cyanheads/mcp-ts-core/vitest.config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
 const alias = { '@/': new URL('./src/', import.meta.url).pathname };
 
@@ -16,6 +17,17 @@ export default mergeConfig(
   defineConfig({
     resolve: { alias },
     test: {
+      // Server-owned coverage floors, measured at the mcp-ts-core ^0.12.3
+      // adoption (0.2.2). Raise deliberately as the suite grows — the base
+      // config's 94/94/87/94 targets the framework's own suite.
+      coverage: {
+        thresholds: {
+          lines: 65,
+          functions: 58,
+          branches: 54,
+          statements: 63,
+        },
+      },
       projects: [
         {
           extends: true,
