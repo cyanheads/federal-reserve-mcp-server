@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.3](changelog/0.2.x/0.2.3.md) — 2026-08-21
+
+Adopts @cyanheads/mcp-ts-core ^0.12.3 — MCP SDK v2 protocol era, whole-exchange fetch timeouts, tightened definition linter — with enrichment totals on three tools, TypeScript 7, and Bun 1.4 Docker images.
+
 ## [0.2.2](changelog/0.2.x/0.2.2.md) — 2026-06-20
 
 Server-level instructions advertised in the MCP initialize response; maintenance adopt @cyanheads/mcp-ts-core 0.10.9.

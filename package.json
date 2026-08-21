@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/federal-reserve-mcp-server",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "mcpName": "io.github.cyanheads/federal-reserve-mcp-server",
   "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
   "type": "module",

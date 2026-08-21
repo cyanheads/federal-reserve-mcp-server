@@ -1,15 +1,18 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-06-20 19:03:37
+Generated on: 2026-08-21 15:31:04
 
 ```text
 federal-reserve-mcp-server/
-├── .claude/
 ├── .github/
-│   └── ISSUE_TEMPLATE/
-│       ├── bug_report.yml
-│       ├── config.yml
-│       └── feature_request.yml
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.yml
+│   │   ├── config.yml
+│   │   └── feature_request.yml
+│   ├── CODE_OF_CONDUCT.md
+│   ├── CONTRIBUTING.md
+│   ├── FUNDING.yml
+│   └── SECURITY.md
 ├── .vscode/
 │   ├── extensions.json
 │   └── settings.json
@@ -167,6 +170,7 @@ federal-reserve-mcp-server/
 │       └── fedreserve-search-series.tool.test.ts
 ├── .dockerignore
 ├── .env.example
+├── .gitattributes
 ├── .gitignore
 ├── .mcpbignore
 ├── AGENTS.md
