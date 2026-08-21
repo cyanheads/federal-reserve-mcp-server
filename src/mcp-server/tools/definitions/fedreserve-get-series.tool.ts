@@ -80,7 +80,10 @@ export const fedreserveGetSeriesTool = tool('fedreserve_get_series', {
     const failed: { id: string; error: string }[] = [];
 
     for (const [i, result] of results.entries()) {
-      const id = ids[i]!;
+      const id = ids[i];
+      if (!result || id === undefined) {
+        throw new Error(`Positional mismatch between series_ids and settled results at ${i}`);
+      }
       if (result.status === 'fulfilled') {
         const raw = result.value.seriess?.[0];
         if (!raw) {

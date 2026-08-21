@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-get-observations.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetObservationsTool } from '@/mcp-server/tools/definitions/fedreserve-get-observations.tool.js';
@@ -32,7 +33,7 @@ const UNRATE_OBS = {
 };
 
 describe('fedreserveGetObservationsTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveGetObservationsTool.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveGetObservationsTool.errors });

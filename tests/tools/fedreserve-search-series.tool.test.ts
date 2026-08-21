@@ -74,6 +74,7 @@ describe('fedreserveSearchSeriesTool', () => {
       count: 1,
       offset: 0,
       limit: 1000,
+      query: 'unemployment',
       series: [
         {
           id: 'UNRATE',
@@ -101,6 +102,7 @@ describe('fedreserveSearchSeriesTool', () => {
       count: 0,
       offset: 0,
       limit: 1000,
+      query: 'unemployment',
       series: [],
     });
     const text = (blocks[0] as { text: string }).text;

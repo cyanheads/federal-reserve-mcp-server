@@ -8,7 +8,7 @@
  */
 
 import type { Context } from '@cyanheads/mcp-ts-core';
-import { httpErrorFromResponse, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { fetchWithTimeout, withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
 import type {
   FredCategoryResponse,
@@ -57,6 +57,9 @@ export interface GetCategorySeriesParams {
   category_id: number;
   limit?: number;
 }
+
+/** Whole-exchange bound for a FRED upstream call (headers + body). */
+const FRED_TIMEOUT_MS = 15_000;
 
 export class FredApiService {
   private readonly baseUrl: string;
@@ -195,18 +198,14 @@ export class FredApiService {
 
   private get<T>(path: string, query: URLSearchParams, ctx: Context): Promise<T> {
     const url = `${this.baseUrl}${path}?${query.toString()}`;
-    const sanitizedQuery = new URLSearchParams(query);
-    sanitizedQuery.delete('api_key');
-    const sanitizedUrl = `${this.baseUrl}${path}?${sanitizedQuery.toString()}`;
     return withRetry(
       async () => {
-        const response = await fetch(url, { signal: ctx.signal });
-        if (!response.ok) {
-          throw await httpErrorFromResponse(response, {
-            service: 'FRED',
-            data: { url: sanitizedUrl, path },
-          });
-        }
+        const response = await fetchWithTimeout(url, FRED_TIMEOUT_MS, ctx, {
+          signal: ctx.signal,
+          // Unknown series/category/release IDs are routine agent exploration —
+          // FRED answers them with 400/404. Still thrown; logged at debug only.
+          expectedStatuses: [400, 404],
+        });
         const text = await response.text();
         return this.parseJson<T>(text);
       },

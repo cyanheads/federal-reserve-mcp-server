@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-dataframe-drop.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,7 +18,7 @@ vi.mock('@/services/canvas-bridge/canvas-bridge.js', () => ({
 }));
 
 describe('fedreserveDataframeDropToolDef', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveDataframeDropToolDef.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveDataframeDropToolDef.errors });

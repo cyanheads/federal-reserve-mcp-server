@@ -209,7 +209,10 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
     const failed: { series_id: string; error: string }[] = [];
 
     for (const [i, result] of results.entries()) {
-      const series_id = ids[i]!;
+      const series_id = ids[i];
+      if (!result || series_id === undefined) {
+        throw new Error(`Positional mismatch between series_ids and settled results at ${i}`);
+      }
       if (result.status === 'fulfilled') {
         const resp = result.value;
         const obs = resp.observations ?? [];

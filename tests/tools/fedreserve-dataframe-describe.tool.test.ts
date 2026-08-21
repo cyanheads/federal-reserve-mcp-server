@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-dataframe-describe.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveDataframeDescribeTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-describe.tool.js';
@@ -30,7 +31,7 @@ const SAMPLE_META = {
 };
 
 describe('fedreserveDataframeDescribeTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveDataframeDescribeTool.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveDataframeDescribeTool.errors });

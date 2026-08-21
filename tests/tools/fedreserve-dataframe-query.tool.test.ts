@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-dataframe-query.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveDataframeQueryTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-query.tool.js';
@@ -14,7 +15,7 @@ vi.mock('@/services/canvas-bridge/canvas-bridge.js', () => ({
 }));
 
 describe('fedreserveDataframeQueryTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveDataframeQueryTool.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveDataframeQueryTool.errors });

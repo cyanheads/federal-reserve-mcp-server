@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-get-series.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-get-series.tool.js';
@@ -28,7 +29,7 @@ const UNRATE_RAW = {
 };
 
 describe('fedreserveGetSeriesTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveGetSeriesTool.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveGetSeriesTool.errors });

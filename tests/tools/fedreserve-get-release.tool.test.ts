@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-get-release.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetReleaseTool } from '@/mcp-server/tools/definitions/fedreserve-get-release.tool.js';
@@ -45,7 +46,7 @@ const RAW_SERIES_RESP = {
 const FUTURE_DATE = '2030-01-01';
 
 describe('fedreserveGetReleaseTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveGetReleaseTool.errors>>;
 
   beforeEach(() => {
     ctx = createMockContext({ errors: fedreserveGetReleaseTool.errors });

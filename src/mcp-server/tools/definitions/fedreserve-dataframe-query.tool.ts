@@ -78,6 +78,12 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       .describe('ISO 8601 expiry timestamp for the newly registered dataframe, when applicable.'),
   }),
 
+  enrichment: {
+    totalCount: z
+      .number()
+      .describe('Total rows the query produced before the preview/row_limit cap was applied.'),
+  },
+
   async handler(input, ctx) {
     const bridge = getCanvasBridge();
     if (!bridge) {
@@ -99,6 +105,7 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       returned: result.rows.length,
       registeredAs: meta?.tableName,
     });
+    ctx.enrich.total(result.rowCount);
 
     return {
       columns: result.columns,

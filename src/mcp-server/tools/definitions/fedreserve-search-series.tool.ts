@@ -64,6 +64,10 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       .describe('Matching series.'),
   }),
 
+  enrichment: {
+    totalCount: z.number().describe('Total matching series count before pagination was applied.'),
+  },
+
   async handler(input, ctx) {
     ctx.log.info('fedreserve_search_series', { query: input.query });
     const resp = await getFredApiService().searchSeries(
@@ -78,6 +82,7 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       },
       ctx,
     );
+    ctx.enrich.total(resp.count);
 
     const activeFilters: Record<string, string> = {};
     if (input.filter_variable && input.filter_value) {

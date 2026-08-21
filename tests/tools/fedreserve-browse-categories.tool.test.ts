@@ -3,6 +3,7 @@
  * @module tests/tools/fedreserve-browse-categories.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveBrowseCategoriesTool } from '@/mcp-server/tools/definitions/fedreserve-browse-categories.tool.js';
@@ -20,10 +21,10 @@ vi.mock('@/services/fred/fred-service.js', () => ({
 }));
 
 describe('fedreserveBrowseCategoriesTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveBrowseCategoriesTool.errors>>;
 
   beforeEach(() => {
-    ctx = createMockContext();
+    ctx = createMockContext({ errors: fedreserveBrowseCategoriesTool.errors });
     mockGetCategory.mockReset();
     mockGetCategoryChildren.mockReset();
     mockGetCategorySeries.mockReset();
