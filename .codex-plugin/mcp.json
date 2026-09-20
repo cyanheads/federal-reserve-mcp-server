@@ -1,0 +1,10 @@
+{
+  "federal-reserve-mcp-server": {
+    "command": "npx",
+    "args": ["-y", "@cyanheads/federal-reserve-mcp-server"],
+    "env": {
+      "MCP_TRANSPORT_TYPE": "stdio"
+    },
+    "env_vars": ["FRED_API_KEY"]
+  }
+}

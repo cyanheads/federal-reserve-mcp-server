@@ -1,0 +1,36 @@
+{
+  "name": "federal-reserve-mcp-server",
+  "version": "0.2.3",
+  "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/federal-reserve-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/federal-reserve-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "federal-reserve",
+    "fred",
+    "fred-api",
+    "economic-data",
+    "macroeconomics",
+    "time-series",
+    "stlouisfed",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "federal-reserve-mcp-server",
+    "shortDescription": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP.",
+    "longDescription": "federal-reserve-mcp-server wraps the FRED API (Federal Reserve Bank of St. Louis) — roughly 800,000 economic time series covering output, prices, employment, money, rates, housing, trade, and international macro. Series are keyed by opaque FRED IDs like UNRATE or GDPC1, so the workflow starts with fedreserve_search_series, fedreserve_browse_categories, or fedreserve_get_release to resolve a topic to IDs, then fedreserve_get_series for metadata and fedreserve_get_observations for date+value data. Observations support FRED's native unit transforms and frequency downsampling, and values stay strings so trailing zeros survive. Multi-series or large pulls spill to a DuckDB-backed dataframe queryable with SQL through fedreserve_dataframe_query. Runs over STDIO or Streamable HTTP; a free FRED_API_KEY is required and grants 120 requests per minute.",
+    "developerName": "cyanheads",
+    "category": "data",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/cyanheads/federal-reserve-mcp-server",
+    "defaultPrompt": []
+  }
+}

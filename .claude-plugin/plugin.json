@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "federal-reserve-mcp-server",
+  "version": "0.2.3",
+  "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/federal-reserve-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/federal-reserve-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "federal-reserve",
+    "fred",
+    "fred-api",
+    "economic-data",
+    "macroeconomics",
+    "time-series",
+    "stlouisfed",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "userConfig": {
+    "fred_api_key": {
+      "type": "string",
+      "title": "FRED API key",
+      "description": "Required. Free key from research.stlouisfed.org/docs/api/api_key.html, sent as the api_key query parameter on every request. Grants 120 requests/minute.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "federal-reserve-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/federal-reserve-mcp-server"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "FRED_API_KEY": "${user_config.fred_api_key}"
+      }
+    }
+  }
+}
