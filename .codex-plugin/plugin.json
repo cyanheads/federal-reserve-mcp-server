@@ -1,6 +1,6 @@
 {
   "name": "federal-reserve-mcp-server",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
   "author": {
     "name": "cyanheads",

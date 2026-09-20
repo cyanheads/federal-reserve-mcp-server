@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.4](changelog/0.2.x/0.2.4.md) — 2026-09-20 · ⚠️ Breaking · 🛡️ Security
+
+Adopts @cyanheads/mcp-ts-core ^0.13.6 — Bun engines floor rises to >=1.4.0 and a rejected tool call now returns InvalidParams with a Recovery: hint — plus fixes for the MCP_SESSION_MODE default (#23) and a Markdown-escaping sanitization bug in fedreserve_dataframe_query (#24).
+
 ## [0.2.3](changelog/0.2.x/0.2.3.md) — 2026-08-21
 
 Adopts @cyanheads/mcp-ts-core ^0.12.3 — MCP SDK v2 protocol era, whole-exchange fetch timeouts, tightened definition linter — with enrichment totals on three tools, TypeScript 7, and Bun 1.4 Docker images.
