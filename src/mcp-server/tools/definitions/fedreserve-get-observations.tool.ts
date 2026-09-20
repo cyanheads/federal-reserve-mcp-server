@@ -124,6 +124,9 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
       ),
   }),
 
+  /** FRED's own `/series/observations` parameter is the singular `series_id`. */
+  inputAliases: { series_id: 'series_ids' },
+
   output: z.object({
     series: z
       .array(

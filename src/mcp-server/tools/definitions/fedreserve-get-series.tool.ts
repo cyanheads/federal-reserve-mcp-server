@@ -52,6 +52,9 @@ export const fedreserveGetSeriesTool = tool('fedreserve_get_series', {
       .describe('One series ID or an array of up to 50 series IDs.'),
   }),
 
+  /** FRED's own `/series` parameter is the singular `series_id`. */
+  inputAliases: { series_id: 'series_ids' },
+
   output: z.object({
     series: z
       .array(SeriesMetaSchema.describe('Metadata for one FRED series.'))

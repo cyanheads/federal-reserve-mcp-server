@@ -4,7 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetObservationsTool } from '@/mcp-server/tools/definitions/fedreserve-get-observations.tool.js';
 
@@ -155,5 +155,22 @@ describe('fedreserveGetObservationsTool', () => {
     const blocks = fedreserveGetObservationsTool.format!(output);
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('df_ABC12_DEF34');
+  });
+
+  /**
+   * The alias rewrite runs inside `parseToolArguments`, so it is only reachable
+   * through the contract boundary — a direct `handler()` call skips it.
+   */
+  it('accepts FRED’s singular series_id under the declared series_ids', async () => {
+    mockGetObservations.mockResolvedValueOnce(UNRATE_OBS);
+
+    const result = await runToolContract(fedreserveGetObservationsTool, {
+      series_id: 'UNRATE',
+    } as never);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      series: [{ series_id: 'UNRATE', observation_count: 3 }],
+    });
   });
 });

@@ -3,7 +3,7 @@
  * @module tests/tools/fedreserve-search-series.tool.test
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveSearchSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-search-series.tool.js';
 
@@ -107,5 +107,19 @@ describe('fedreserveSearchSeriesTool', () => {
     });
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('No series found');
+  });
+
+  /**
+   * The alias rewrite runs inside `parseToolArguments`, so it is only reachable
+   * through the contract boundary — a direct `handler()` call skips it.
+   */
+  it('accepts FRED’s search_text under the declared query', async () => {
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      search_text: 'unemployment',
+    } as never);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ query: 'unemployment', count: 2 });
+    expect(JSON.stringify(result.content)).toContain('UNRATE');
   });
 });

@@ -38,6 +38,9 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       .describe('Pagination offset (FRED caps searchable results at 5000; offset must be ≤ 4999).'),
   }),
 
+  /** FRED's own `/series/search` parameter for the query is `search_text`. */
+  inputAliases: { search_text: 'query' },
+
   output: z.object({
     count: z.number().describe('Total matching series count.'),
     offset: z.number().describe('Pagination offset applied.'),

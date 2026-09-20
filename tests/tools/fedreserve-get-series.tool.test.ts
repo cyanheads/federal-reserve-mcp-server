@@ -4,7 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-get-series.tool.js';
 
@@ -135,5 +135,38 @@ describe('fedreserveGetSeriesTool', () => {
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('BOGUS');
     expect(text).toContain('not found');
+  });
+
+  /**
+   * The alias rewrite runs inside `parseToolArguments`, so it is only reachable
+   * through the contract boundary — a direct `handler()` call skips it.
+   */
+  describe('input aliases', () => {
+    it('accepts FRED’s singular series_id under the declared series_ids', async () => {
+      mockGetSeriesById.mockResolvedValueOnce({ seriess: [UNRATE_RAW] });
+
+      const result = await runToolContract(fedreserveGetSeriesTool, {
+        series_id: 'UNRATE',
+      } as never);
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ series: [{ id: 'UNRATE' }] });
+      expect(mockGetSeriesById).toHaveBeenCalledWith('UNRATE', expect.anything());
+    });
+
+    it('does not advertise the alias on inputSchema', () => {
+      const shape = Object.keys(fedreserveGetSeriesTool.input.shape);
+      expect(shape).toEqual(['series_ids']);
+    });
+
+    it('rejects an undeclared key that is not an alias', async () => {
+      const result = await runToolContract(fedreserveGetSeriesTool, {
+        series_ids: 'UNRATE',
+        seriesID_typo: 'UNRATE',
+      } as never);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain('seriesID_typo');
+    });
   });
 });
