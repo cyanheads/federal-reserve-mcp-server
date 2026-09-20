@@ -17,93 +17,110 @@
 
 ---
 
-## Tools
+## Overview
 
-Five FRED tools plus three DataCanvas tools for querying spilled observation results via SQL:
+Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Louis) — ~800K time series covering output, prices, employment, money, rates, housing, trade, and international macro. Search series, fetch metadata and observations, browse the category tree, look up releases, and query large result sets with SQL over DataCanvas. Runs as a stdio process or a local Streamable HTTP server.
+
+### Tools
 
 | Tool | Description |
 |:-----|:------------|
-| `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags — returns matching series IDs with metadata |
-| `fedreserve_get_series` | Fetch metadata for one or more series (title, units, frequency, seasonal adjustment, observation range) |
-| `fedreserve_get_observations` | Fetch date+value observation data for one or more series with date-range filtering and unit transformations |
-| `fedreserve_browse_categories` | Navigate the FRED category tree; drill into a category to see child categories and a series sample |
-| `fedreserve_get_release` | Look up a FRED release by ID or name search — returns release metadata and its associated series list |
-| `fedreserve_dataframe_describe` | List active DataCanvas dataframes registered by this server (canvas IDs, row counts, schemas) |
-| `fedreserve_dataframe_query` | Run a SELECT query against a registered DataCanvas dataframe |
-| `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
+| `fedreserve_search_series` | Full-text search across FRED series titles, tags, and notes |
+| `fedreserve_get_series` | Fetch metadata for one or more series — title, units, frequency, observation range |
+| `fedreserve_get_observations` | Fetch date+value observations for one or more series, with date-range and unit-transform filtering |
+| `fedreserve_browse_categories` | Navigate the FRED category tree |
+| `fedreserve_get_release` | Look up a FRED release by ID or name search, with its associated series |
+| `fedreserve_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
+| `fedreserve_dataframe_query` | Run a SELECT against registered DataCanvas dataframes via DuckDB SQL |
+| `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in) |
 
-### `fedreserve_search_series`
+## Capability reference
 
-Search for FRED series by free-text query across titles, tags, and notes.
+### `fedreserve_search_series` <sub>tool</sub>
 
-- Full-text and series-ID search modes
-- Post-search filtering by frequency, units, or seasonal adjustment status
-- Tag-name filtering (semicolon-delimited list)
-- Pagination via `limit` and `offset`
-- To find series for a specific release, use `fedreserve_get_release` instead
-
----
-
-### `fedreserve_get_series`
-
-Fetch metadata for one or more FRED series.
-
-- Accepts up to 50 series IDs in a single call
-- Returns title, units, frequency, seasonal adjustment, observation range, popularity, and notes
-- Fires parallel upstream requests (no FRED batch endpoint exists); partial success reported per ID
+- Full-text (default) or series-ID search mode; optional post-search filter by `frequency`, `units`, or `seasonal_adjustment`, plus semicolon-delimited `tag_names`
+- Pagination via `limit` (max 1000, default 1000) and `offset` (max 4999 — FRED caps searchable results at 5000)
+- Output echoes `active_filters` when any were applied, and a `popularity` score (0–100) when FRED provides one
+- Empty results suggest broadening the query or using `fedreserve_browse_categories`; for a specific release's series, use `fedreserve_get_release` instead
 
 ---
 
-### `fedreserve_get_observations`
+### `fedreserve_get_series` <sub>tool</sub>
 
-Fetch observation data (date + value pairs) for one or more series.
-
-- Accepts up to 10 series IDs; fires one upstream request per series in parallel
-- Date-range filtering with ISO 8601 dates (`observation_start`, `observation_end`)
-- FRED's native unit transformations: `lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`
-- Frequency downsampling with configurable aggregation method (`avg`, `sum`, `eop`)
-- Multi-series or >500-row results spill to a DataCanvas table; response includes a `dataset.name` handle for SQL querying via `fedreserve_dataframe_query`
-- Degrades gracefully when DataCanvas is unavailable — returns inline preview with row count
+- Accepts a single series ID or up to 50 in one call; fires parallel upstream requests (no FRED batch endpoint exists)
+- Returns title, units, frequency, seasonal adjustment, observation range, popularity, and notes per series
+- Partial-batch failures land in a `failed` array with per-ID error messages; a single unresolved ID throws `series_not_found` instead
 
 ---
 
-### `fedreserve_browse_categories`
+### `fedreserve_get_observations` <sub>tool</sub>
 
-Navigate the FRED category hierarchy.
-
-- Omit `category_id` to start at the root (ID 0)
-- Provide a `category_id` to see child categories and a series sample for leaf categories
-- Covers all FRED domains: Money & Banking, National Accounts, Employment, Prices, Housing, Trade, and more
+- Accepts a single series ID or up to 10 in one call, one upstream request per series in parallel
+- Date-range filtering (`observation_start` / `observation_end`, ISO 8601) and FRED's native unit transforms (`lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`)
+- Frequency downsampling (daily through annual, plus weekly-ending variants) with `aggregation_method` (`avg`, `sum`, `eop`)
+- Multi-series or >500-row results spill to a DataCanvas table — the response carries a `dataset.name` handle for `fedreserve_dataframe_query`; degrades to a truncated inline preview when canvas is unavailable
+- Values stay strings to preserve trailing zeros
 
 ---
 
-### `fedreserve_get_release`
+### `fedreserve_browse_categories` <sub>tool</sub>
 
-Inspect a FRED data release and its associated series.
+- Omit `category_id` to start at the root (ID 0); returns the category, its child categories, and — for a leaf with no children — a sample of up to 10 series
+- An unknown `category_id` throws `category_not_found`
 
-- Look up by `release_id` (integer) or `release_search` (case-insensitive substring match)
-- Name search fetches all releases and filters client-side (FRED has no server-side release search)
-- Returns release name, link, scheduled dates, and a paginated series list
-- Use `series_limit` and `series_offset` to page through large releases
+---
+
+### `fedreserve_get_release` <sub>tool</sub>
+
+- Exactly one of `release_id` (integer) or `release_search` (case-insensitive substring, filtered client-side — FRED has no server-side release search) is required
+- Returns release name, link, notes, upcoming scheduled dates, and a paginated series list (`series_limit` max 1000, `series_offset`)
+- An ambiguous name search returns up to 10 `search_alternatives` instead of guessing; retry with the exact `release_id`
+
+---
+
+### `fedreserve_dataframe_describe` <sub>tool</sub>
+
+- Lists all active DataCanvas dataframes for the tenant, or one by `name`, newest first
+- Each entry carries `source_tool`, `query_params`, `created_at`, a sliding `expires_at`, `row_count`, `truncated` / `max_rows`, and full `column_schema`
+- Requires `CANVAS_PROVIDER_TYPE=duckdb`; throws `canvas_unavailable` otherwise
+
+---
+
+### `fedreserve_dataframe_query` <sub>tool</sub>
+
+- Single-statement SELECT only, against `df_<id>` tables from `fedreserve_get_observations` — joins, aggregates, window functions, and CTEs supported; writes, DDL, DROP, COPY, PRAGMA, ATTACH, external-file table functions, and system catalogs are rejected
+- `row_limit` caps materialized rows (default 1000, max 10000); `preview` controls how many are returned inline
+- Optional `register_as` persists the result as a new dataframe with its own TTL, for chaining without re-running the source SQL
+- BIGINT columns (COUNT/SUM) serialize as JSON strings — cast to DOUBLE for inline arithmetic
+- Requires `CANVAS_PROVIDER_TYPE=duckdb`; throws `canvas_unavailable` otherwise
+
+---
+
+### `fedreserve_dataframe_drop` <sub>tool</sub>
+
+- Opt-in — only registered when `FRED_DATAFRAME_DROP_ENABLED=true`; otherwise listed as a disabled tool card
+- Idempotent: returns `dropped: false` when the named table doesn't exist, rather than erroring
+- TTL already reclaims expired tables automatically — this tool is for explicit early cleanup
+- Requires `CANVAS_PROVIDER_TYPE=duckdb`; throws `canvas_unavailable` otherwise
 
 ## Features
 
-Built on [`@cyanheads/mcp-ts-core`](https://www.npmjs.com/package/@cyanheads/mcp-ts-core):
-
-- Declarative tool definitions — single file per tool, framework handles registration and validation
-- Unified error handling across all tools
-- Pluggable auth (`none`, `jwt`, `oauth`)
-- Swappable storage backends: `in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`
-- Structured logging with optional OpenTelemetry tracing
-- STDIO and Streamable HTTP transports
+Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): stdio and Streamable HTTP transports, pluggable auth (`none` / `jwt` / `oauth`), swappable storage (`in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`), structured logging with optional OpenTelemetry tracing.
 
 FRED-specific:
 
-- Read-only access to the St. Louis Fed's FRED API (`api.stlouisfed.org/fred`)
-- Parallel multi-series fetching via `Promise.allSettled` with partial success reporting
-- DataCanvas spillover for multi-series or large observation results — spilled tables queryable via `fedreserve_dataframe_query`
-- Retry with backoff and 429 rate-limit detection against FRED's 120 req/min limit
-- FRED's native unit transformations delegated server-side for precision against the full series history
+- `FRED_API_KEY`-gated access to the St. Louis Fed's FRED API (`api.stlouisfed.org/fred`) at up to 120 requests/minute
+- Parallel multi-series fetching via `Promise.allSettled`, with partial success reported per ID rather than failing the whole batch
+- DataCanvas spillover for multi-series or >500-row observation results, queryable via `fedreserve_dataframe_query`
+- FRED's native unit transformations and frequency downsampling delegated server-side for precision against the full series history
+- Category tree navigation across all FRED domains — Money & Banking, National Accounts, Employment, Prices, Housing, Trade, and more
+
+Agent-friendly output:
+
+- Graceful partial failure — `fedreserve_get_series` and `fedreserve_get_observations` return per-ID `failed` rows with error messages instead of failing the whole request
+- Ambiguous-input disambiguation — `fedreserve_get_release`'s name search returns typed `search_alternatives` instead of guessing when multiple releases match
+- Provenance on DataCanvas output — every dataframe carries `source_tool`, `query_params`, and TTL fields so agents can reason about where staged data came from and how long it's valid
+- Degrades gracefully — `fedreserve_get_observations` falls back to a truncated inline preview with an explanatory `message` when DataCanvas isn't configured, rather than failing
 
 ## Getting started
 
@@ -173,7 +190,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 FRED_API_KEY=... bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.3.2](https://bun.sh/) or higher.
+- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
 - A free FRED API key from [stlouisfed.org](https://fredaccount.stlouisfed.org/login/secure/). The key grants 120 requests/minute.
 
 ### Installation
@@ -216,6 +233,7 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 | `CANVAS_PROVIDER_TYPE` | Set to `duckdb` to enable DataCanvas SQL querying for observation results. | — |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for HTTP server. | `3010` |
+| `MCP_SESSION_MODE` | HTTP session posture: `auto`, `stateful`, or `stateless`. Declared as `stateless` in `src/index.ts` — no tool holds per-session state. | `stateless` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
 | `LOGS_DIR` | Directory for log files (Node.js only). | `<project-root>/logs` |
@@ -280,7 +298,7 @@ See [`CLAUDE.md`](./CLAUDE.md) for development guidelines and architectural rule
 
 ## Contributing
 
-Issues and pull requests are welcome. Run checks and tests before submitting:
+Issues are welcome. Run checks and tests before submitting:
 
 ```sh
 bun run devcheck
