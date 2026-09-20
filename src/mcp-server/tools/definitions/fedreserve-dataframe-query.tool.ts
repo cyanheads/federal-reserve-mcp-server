@@ -11,6 +11,16 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
+/**
+ * Escape one Markdown table cell so its rendered text equals the value the query
+ * returned. Backslashes go first: a backslash is itself the Markdown escape
+ * character, so escaping the pipe without doubling it lets the renderer consume
+ * the value's own backslash and silently drop characters from the cell.
+ */
+function escapeCell(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+}
+
 export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   title: 'Query FRED Dataframes',
   description:
@@ -134,15 +144,15 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       return [{ type: 'text', text: lines.join('\n') }];
     }
 
-    const header = `| ${result.columns.join(' | ')} |`;
+    const header = `| ${result.columns.map(escapeCell).join(' | ')} |`;
     const sep = `| ${result.columns.map(() => '---').join(' | ')} |`;
     lines.push(header, sep);
     for (const row of result.rows) {
       const cells = result.columns.map((c) => {
         const v = row[c];
         if (v === null || v === undefined) return '';
-        if (typeof v === 'string') return v.replace(/\|/g, '\\|');
-        if (typeof v === 'object') return JSON.stringify(v).replace(/\|/g, '\\|');
+        if (typeof v === 'string') return escapeCell(v);
+        if (typeof v === 'object') return escapeCell(JSON.stringify(v));
         return String(v);
       });
       lines.push(`| ${cells.join(' | ')} |`);

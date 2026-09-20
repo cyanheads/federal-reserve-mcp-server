@@ -117,4 +117,89 @@ describe('fedreserveDataframeQueryTool', () => {
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('df_XYZ99_PQR77');
   });
+
+  it('format renders an empty cell for null and undefined, and stringifies other primitives', () => {
+    const blocks = fedreserveDataframeQueryTool.format!({
+      columns: ['a', 'b', 'c', 'd'],
+      row_count: 1,
+      rows: [{ a: null, b: undefined, c: 42, d: true }],
+    });
+    const text = (blocks[0] as { text: string }).text;
+    expect(text).toContain('|  |  | 42 | true |');
+  });
+
+  it('format says no rows when the result set is empty', () => {
+    const blocks = fedreserveDataframeQueryTool.format!({
+      columns: ['a'],
+      row_count: 0,
+      rows: [],
+    });
+    expect((blocks[0] as { text: string }).text).toContain('_No rows._');
+  });
+
+  /**
+   * A Markdown table cell is escaped so its rendered text equals the value the
+   * query returned. A backslash is itself an escape character, so it has to be
+   * doubled before a pipe is escaped — otherwise the value's own backslash is
+   * consumed by the renderer and the cell silently loses characters.
+   */
+  describe('format Markdown cell escaping', () => {
+    it('escapes a pipe in a string cell', () => {
+      const blocks = fedreserveDataframeQueryTool.format!({
+        columns: ['a'],
+        row_count: 1,
+        rows: [{ a: 'x|y' }],
+      });
+      expect((blocks[0] as { text: string }).text).toContain(String.raw`| x\|y |`);
+    });
+
+    it('escapes a pipe in a serialized-object cell', () => {
+      const blocks = fedreserveDataframeQueryTool.format!({
+        columns: ['a'],
+        row_count: 1,
+        rows: [{ a: { note: 'x|y' } }],
+      });
+      expect((blocks[0] as { text: string }).text).toContain(String.raw`x\|y`);
+    });
+
+    it('escapes a backslash in a string cell so the value survives rendering', () => {
+      const blocks = fedreserveDataframeQueryTool.format!({
+        columns: ['a', 'b'],
+        row_count: 1,
+        rows: [{ a: String.raw`x\|y`, b: String.raw`a\*b` }],
+      });
+      const text = (blocks[0] as { text: string }).text;
+      expect(text).toContain(String.raw`| x\\\|y | a\\*b |`);
+    });
+
+    it('escapes a backslash in a serialized-object cell', () => {
+      const blocks = fedreserveDataframeQueryTool.format!({
+        columns: ['a'],
+        row_count: 1,
+        // JSON.stringify already doubles the backslash; escaping doubles it again.
+        rows: [{ a: { path: String.raw`C:\tmp` } }],
+      });
+      expect((blocks[0] as { text: string }).text).toContain(String.raw`C:\\\\tmp`);
+    });
+
+    it('escapes a pipe and a backslash in a column name', () => {
+      // A quoted DuckDB identifier can carry either character.
+      const column = String.raw`a\|b`;
+      const blocks = fedreserveDataframeQueryTool.format!({
+        columns: [column],
+        row_count: 1,
+        rows: [{ [column]: '1' }],
+      });
+      expect((blocks[0] as { text: string }).text).toContain(String.raw`| a\\\|b |`);
+    });
+
+    it('leaves structuredContent rows untouched', async () => {
+      mockQuery.mockResolvedValueOnce({
+        result: { columns: ['a'], rowCount: 1, rows: [{ a: String.raw`x\|y` }] },
+      });
+      const input = fedreserveDataframeQueryTool.input.parse({ sql: 'SELECT 1' });
+      const result = await fedreserveDataframeQueryTool.handler(input, ctx);
+      expect(result.rows).toEqual([{ a: String.raw`x\|y` }]);
+    });
+  });
 });
