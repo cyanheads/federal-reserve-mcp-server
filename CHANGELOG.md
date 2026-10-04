@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.5](changelog/0.2.x/0.2.5.md) — 2026-10-03
+
+Restore the native runtime for observation dataframes.
+
 ## [0.2.4](changelog/0.2.x/0.2.4.md) — 2026-09-20 · ⚠️ Breaking · 🛡️ Security
 
 Adopts @cyanheads/mcp-ts-core ^0.13.6 — Bun engines floor rises to >=1.4.0 and a rejected tool call now returns InvalidParams with a Recovery: hint — plus fixes for the MCP_SESSION_MODE default (#23) and a Markdown-escaping sanitization bug in fedreserve_dataframe_query (#24).
