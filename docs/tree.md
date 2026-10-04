@@ -1,6 +1,6 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-09-20 20:42:07
+Generated on: 2026-10-04 05:56:12
 
 ```text
 federal-reserve-mcp-server/
@@ -128,9 +128,11 @@ federal-reserve-mcp-server/
 │   ├── clean-mcpb.ts
 │   ├── clean.ts
 │   ├── devcheck.ts
+│   ├── install-otel.ts
 │   ├── lint-mcp.ts
 │   ├── lint-packaging.ts
 │   ├── list-skills.ts
+│   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   ├── split-changelog.ts
 │   └── tree.ts
@@ -165,6 +167,7 @@ federal-reserve-mcp-server/
 │   ├── resources/
 │   ├── services/
 │   │   ├── canvas-bridge/
+│   │   │   ├── canvas-runtime.test.ts
 │   │   │   └── sql-gate-extras.test.ts
 │   │   └── fred/
 │   │       └── fred-service.test.ts
