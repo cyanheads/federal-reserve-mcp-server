@@ -24,7 +24,7 @@ const ServerConfigSchema = z.object({
   dataframeDrop: z
     .stringbool()
     .default(false)
-    .describe('Set to true to expose fedreserve_dataframe_drop.'),
+    .describe('Set to true to enable fedreserve_dataframe_drop; otherwise registered as disabled.'),
 });
 
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;

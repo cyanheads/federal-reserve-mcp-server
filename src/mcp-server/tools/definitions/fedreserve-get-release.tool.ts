@@ -120,15 +120,11 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
     const hasSearch = (input.release_search?.trim().length ?? 0) > 0;
 
     if (!hasId && !hasSearch) {
-      throw ctx.fail('missing_input', 'Provide either release_id or release_search.', {
-        ...ctx.recoveryFor('missing_input'),
-      });
+      throw ctx.fail('missing_input', 'Provide either release_id or release_search.');
     }
 
     if (hasId && hasSearch) {
-      throw ctx.fail('missing_input', 'Provide release_id or release_search, not both.', {
-        ...ctx.recoveryFor('missing_input'),
-      });
+      throw ctx.fail('missing_input', 'Provide release_id or release_search, not both.');
     }
 
     let releaseId: number;
@@ -147,9 +143,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
 
       const firstMatch = matches[0];
       if (!firstMatch) {
-        throw ctx.fail('release_not_found', `No FRED releases matched "${input.release_search}".`, {
-          ...ctx.recoveryFor('release_not_found'),
-        });
+        throw ctx.fail('release_not_found', `No FRED releases matched "${input.release_search}".`);
       }
 
       const exact =
@@ -164,7 +158,6 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
           'ambiguous_release_search',
           `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
           {
-            ...ctx.recoveryFor('ambiguous_release_search'),
             search_alternatives: alternatives,
           },
         );
@@ -172,9 +165,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
     } else {
       // Unreachable — the missing_input guards above ensure exactly one of
       // release_id / release_search is present.
-      throw ctx.fail('missing_input', 'Provide either release_id or release_search.', {
-        ...ctx.recoveryFor('missing_input'),
-      });
+      throw ctx.fail('missing_input', 'Provide either release_id or release_search.');
     }
 
     const limit = input.series_limit ?? 20;
@@ -194,9 +185,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
         fredBody.includes('bad request') ||
         fredBody.includes('not found')
       ) {
-        throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`, {
-          ...ctx.recoveryFor('release_not_found'),
-        });
+        throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`);
       }
       throw err;
     }
@@ -213,9 +202,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
 
     const release = releaseResp.releases?.[0];
     if (!release) {
-      throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`, {
-        ...ctx.recoveryFor('release_not_found'),
-      });
+      throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`);
     }
 
     const scheduledDates = (datesResp.release_dates ?? [])

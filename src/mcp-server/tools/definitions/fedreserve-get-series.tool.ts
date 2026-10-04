@@ -6,7 +6,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { internalError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 const SeriesMetaSchema = z.object({
@@ -85,15 +85,13 @@ export const fedreserveGetSeriesTool = tool('fedreserve_get_series', {
     for (const [i, result] of results.entries()) {
       const id = ids[i];
       if (!result || id === undefined) {
-        throw new Error(`Positional mismatch between series_ids and settled results at ${i}`);
+        throw internalError(`Positional mismatch between series_ids and settled results at ${i}`);
       }
       if (result.status === 'fulfilled') {
         const raw = result.value.seriess?.[0];
         if (!raw) {
           if (ids.length === 1) {
-            throw ctx.fail('series_not_found', `Series ${id} not found on FRED.`, {
-              ...ctx.recoveryFor('series_not_found'),
-            });
+            throw ctx.fail('series_not_found', `Series ${id} not found on FRED.`);
           }
           failed.push({ id, error: `Series ${id} not found on FRED.` });
         } else {
@@ -118,12 +116,9 @@ export const fedreserveGetSeriesTool = tool('fedreserve_get_series', {
 
     if (series.length === 0 && failed.length > 0) {
       if (ids.length === 1) {
-        throw ctx.fail('series_not_found', `Series ${ids[0]} not found on FRED.`, {
-          ...ctx.recoveryFor('series_not_found'),
-        });
+        throw ctx.fail('series_not_found', `Series ${ids[0]} not found on FRED.`);
       }
       throw ctx.fail('partial_failure', `All ${ids.length} series IDs failed to resolve.`, {
-        ...ctx.recoveryFor('partial_failure'),
         failed,
       });
     }

@@ -97,9 +97,7 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   async handler(input, ctx) {
     const bridge = getCanvasBridge();
     if (!bridge) {
-      throw ctx.fail('canvas_unavailable', 'DataCanvas is not configured on this server.', {
-        ...ctx.recoveryFor('canvas_unavailable'),
-      });
+      throw ctx.fail('canvas_unavailable', 'DataCanvas is not configured on this server.');
     }
 
     const { result, meta } = await bridge.query(ctx, input.sql, {

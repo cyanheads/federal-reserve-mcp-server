@@ -7,12 +7,21 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { internalError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 const SPILLOVER_ROW_THRESHOLD = 500;
 const PREVIEW_ROWS = 20;
+
+/** Form clients may send an unset date as an empty string. */
+const OptionalObservationDateSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
+    .optional(),
+);
 
 /**
  * Truncate inline observation arrays to `maxRows` total across all series.
@@ -71,16 +80,12 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
         z.array(z.string().min(1)).min(1).max(10).describe('Array of up to 10 series IDs.'),
       ])
       .describe('One series ID or an array of up to 10 series IDs.'),
-    observation_start: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
-      .optional()
-      .describe('Start date for observations (YYYY-MM-DD). Defaults to the series start.'),
-    observation_end: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
-      .optional()
-      .describe('End date for observations (YYYY-MM-DD). Defaults to the series end.'),
+    observation_start: OptionalObservationDateSchema.describe(
+      'Start date for observations (YYYY-MM-DD). Defaults to the series start.',
+    ),
+    observation_end: OptionalObservationDateSchema.describe(
+      'End date for observations (YYYY-MM-DD). Defaults to the series end.',
+    ),
     units: z
       .enum(['lin', 'chg', 'ch1', 'pch', 'pc1', 'pca', 'cch', 'cca', 'log'])
       .optional()
@@ -214,7 +219,7 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
     for (const [i, result] of results.entries()) {
       const series_id = ids[i];
       if (!result || series_id === undefined) {
-        throw new Error(`Positional mismatch between series_ids and settled results at ${i}`);
+        throw internalError(`Positional mismatch between series_ids and settled results at ${i}`);
       }
       if (result.status === 'fulfilled') {
         const resp = result.value;
@@ -224,7 +229,6 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
           throw ctx.fail(
             'no_observations_in_range',
             `No observations found for ${series_id} in the requested date range.`,
-            { ...ctx.recoveryFor('no_observations_in_range') },
           );
         }
 
@@ -254,9 +258,7 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
             fredBody.includes('does not exist') ||
             fredBody.includes('is not in the database');
           if (isNotFound) {
-            throw ctx.fail('series_not_found', `Series ${series_id} not found on FRED.`, {
-              ...ctx.recoveryFor('series_not_found'),
-            });
+            throw ctx.fail('series_not_found', `Series ${series_id} not found on FRED.`);
           }
           if (
             lower.includes('frequency') ||
@@ -266,14 +268,11 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
             throw ctx.fail(
               'frequency_too_high',
               `Frequency aggregation error for ${series_id}: ${msg}`,
-              { ...ctx.recoveryFor('frequency_too_high') },
             );
           }
           // Any other single-series upstream error — surface as series_not_found so
           // the caller gets a named error code with an actionable recovery hint.
-          throw ctx.fail('series_not_found', `Series ${series_id} could not be fetched: ${msg}`, {
-            ...ctx.recoveryFor('series_not_found'),
-          });
+          throw ctx.fail('series_not_found', `Series ${series_id} could not be fetched: ${msg}`);
         }
         failed.push({ series_id, error: msg });
       }

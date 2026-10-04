@@ -92,18 +92,14 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
         fredBody.includes('bad request') ||
         fredBody.includes('not found')
       ) {
-        throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`, {
-          ...ctx.recoveryFor('category_not_found'),
-        });
+        throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`);
       }
       throw err;
     }
 
     const cat = categoryResp.categories?.[0];
     if (!cat) {
-      throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`, {
-        ...ctx.recoveryFor('category_not_found'),
-      });
+      throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`);
     }
 
     const children = (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name }));

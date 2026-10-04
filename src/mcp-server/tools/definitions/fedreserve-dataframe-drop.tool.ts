@@ -1,6 +1,6 @@
 /**
- * @fileoverview Drop a canvas dataframe by name. Opt-in: only registered in
- * createApp() when FRED_DATAFRAME_DROP_ENABLED=true. Idempotent — returns
+ * @fileoverview Drop a canvas dataframe by name. Always registered; enabled
+ * only when FRED_DATAFRAME_DROP_ENABLED=true. Idempotent — returns
  * `dropped: false` when nothing matched. TTL handles cleanup in normal
  * operation; this tool is for explicit early reclamation.
  * @module mcp-server/tools/definitions/fedreserve-dataframe-drop
@@ -45,9 +45,7 @@ export const fedreserveDataframeDropToolDef = tool('fedreserve_dataframe_drop', 
   async handler(input, ctx) {
     const bridge = getCanvasBridge();
     if (!bridge) {
-      throw ctx.fail('canvas_unavailable', 'DataCanvas is not configured on this server.', {
-        ...ctx.recoveryFor('canvas_unavailable'),
-      });
+      throw ctx.fail('canvas_unavailable', 'DataCanvas is not configured on this server.');
     }
 
     ctx.log.info('fedreserve_dataframe_drop', { name: input.name });

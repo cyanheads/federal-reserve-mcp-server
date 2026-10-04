@@ -55,6 +55,36 @@ describe('fedreserveGetObservationsTool', () => {
     expect(result.total_observations).toBe(3);
   });
 
+  it('preserves supplied observation dates and rejects malformed dates', () => {
+    const dated = {
+      series_ids: 'UNRATE',
+      observation_start: '2020-01-01',
+      observation_end: '2020-03-01',
+    };
+    expect(fedreserveGetObservationsTool.input.parse(dated)).toMatchObject(dated);
+    for (const field of ['observation_start', 'observation_end']) {
+      expect(
+        fedreserveGetObservationsTool.input.safeParse({ ...dated, [field]: '01/01/2020' }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('treats blank optional dates as unset without forwarding them to FRED', async () => {
+    mockGetObservations.mockResolvedValueOnce(UNRATE_OBS);
+    const result = await runToolContract(fedreserveGetObservationsTool, {
+      series_ids: 'UNRATE',
+      observation_start: '',
+      observation_end: '',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(mockGetObservations).toHaveBeenCalledWith({ series_id: 'UNRATE' }, expect.anything());
+    expect(result.structuredContent).toMatchObject({
+      series: [{ series_id: 'UNRATE', observation_count: 3 }],
+    });
+    expect(JSON.stringify(result.content)).toContain('2020-01-01');
+    expect(JSON.stringify(result.content)).toContain('3.5');
+  });
+
   it('preserves observation values as strings (no float coercion)', async () => {
     mockGetObservations.mockResolvedValueOnce({
       ...UNRATE_OBS,
