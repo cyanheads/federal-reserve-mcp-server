@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-10-17 · ⚠️ Breaking
+
+Fetched observation bounds and upcoming release schedules, with shared dataframe retrieval guidance.
+
 ## [0.2.5](changelog/0.2.x/0.2.5.md) — 2026-10-03
 
 Restore the native runtime for observation dataframes.
