@@ -17,9 +17,11 @@ const PREVIEW_ROWS = 20;
 /** Form clients may send an unset date as an empty string. */
 const OptionalObservationDateSchema = z.preprocess(
   (value) => (value === '' ? undefined : value),
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date in YYYY-MM-DD format.')
+  z.iso
+    .date({
+      error: (issue) =>
+        `Must be a valid calendar date in YYYY-MM-DD format; received ${String(issue.input)}.`,
+    })
     .optional(),
 );
 
@@ -49,7 +51,7 @@ const ObservationSchema = z.object({
 export const fedreserveGetObservationsTool = tool('fedreserve_get_observations', {
   title: 'Get FRED Series Observations',
   description:
-    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a DataCanvas table — the response includes a `dataset` field with the handle to query via fedreserve_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
+    'Fetch observation data (date + value pairs) for one or more FRED series over a date range. Supports FRED built-in unit transformations (lin, chg, ch1, pch, pc1, pca, cch, cca, log). Multi-series or >500-row results spill to a fresh DataCanvas table: use dataset.name with fedreserve_dataframe_describe, then SELECT from that name with fedreserve_dataframe_query. Observation values are kept as strings to preserve trailing zeros.',
   annotations: { readOnlyHint: true, openWorldHint: false },
 
   errors: [
@@ -121,12 +123,6 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
       .describe(
         'Aggregation method when downsampling frequency: avg, sum, or eop (end of period).',
       ),
-    canvas_id: z
-      .string()
-      .optional()
-      .describe(
-        'Optional canvas ID from a prior fedreserve_get_observations call. Omit to create a fresh table; provide to append to an existing canvas.',
-      ),
   }),
 
   /** FRED's own `/series/observations` parameter is the singular `series_id`. */
@@ -138,8 +134,18 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
         z
           .object({
             series_id: z.string().describe('FRED series ID.'),
-            observation_start: z.string().describe('Actual start date of observations returned.'),
-            observation_end: z.string().describe('Actual end date of observations returned.'),
+            observation_start: z
+              .string()
+              .nullable()
+              .describe(
+                'Earliest date in the full fetched observations, before preview slicing; null when empty.',
+              ),
+            observation_end: z
+              .string()
+              .nullable()
+              .describe(
+                'Latest date in the full fetched observations, before preview slicing; null when empty.',
+              ),
             units: z.string().describe('Units applied (after transformation if requested).'),
             observation_count: z.number().describe('Number of observations for this series.'),
             observations: z
@@ -165,7 +171,9 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
       .object({
         name: z
           .string()
-          .describe('Canvas table name (df_XXXXX_XXXXX). Pass to fedreserve_dataframe_query.'),
+          .describe(
+            'Canvas table name (df_XXXXX_XXXXX). Describe with fedreserve_dataframe_describe, then SELECT from this name with fedreserve_dataframe_query.',
+          ),
         row_count: z.number().describe('Total rows registered in the canvas table.'),
         expires_at: z.string().describe('ISO 8601 expiry timestamp.'),
         preview_rows: z
@@ -177,7 +185,7 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
       })
       .optional()
       .describe(
-        'Canvas dataset handle — present when results spilled to canvas (multi-series or >500 rows). Pass `name` to fedreserve_dataframe_query for SQL access.',
+        'Fresh canvas dataset — present after successful spill registration (multi-series or >500 rows). Pass name to fedreserve_dataframe_describe, then use it in fedreserve_dataframe_query SQL.',
       ),
     total_observations: z.number().describe('Total observation count across all series.'),
     message: z
@@ -187,6 +195,15 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
         'Informational note — present when canvas is unavailable or results were truncated.',
       ),
   }),
+
+  enrichment: {
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Staged rows, actual inline preview count, and executable describe/query steps after successful canvas registration.',
+      ),
+  },
 
   async handler(input, ctx) {
     const ids = Array.isArray(input.series_ids) ? input.series_ids : [input.series_ids];
@@ -208,8 +225,8 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
 
     const seriesResults: {
       series_id: string;
-      observation_start: string;
-      observation_end: string;
+      observation_start: string | null;
+      observation_end: string | null;
       units: string;
       observation_count: number;
       observations: { date: string; value: string }[];
@@ -232,10 +249,18 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
           );
         }
 
+        let observationStart: string | null = null;
+        let observationEnd: string | null = null;
+        for (const observation of obs) {
+          if (observationStart === null || observation.date < observationStart)
+            observationStart = observation.date;
+          if (observationEnd === null || observation.date > observationEnd)
+            observationEnd = observation.date;
+        }
         seriesResults.push({
           series_id,
-          observation_start: resp.observation_start ?? '',
-          observation_end: resp.observation_end ?? '',
+          observation_start: observationStart,
+          observation_end: observationEnd,
           units: resp.units ?? '',
           observation_count: obs.length,
           observations: obs.map((o) => ({ date: o.date, value: o.value })),
@@ -296,10 +321,19 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
           ...sharedParams,
         },
       });
+      ctx.signal.throwIfAborted();
 
       // Keep only preview in inline arrays
-      const previewCount = registered ? PREVIEW_ROWS : (seriesResults[0]?.observations.length ?? 0);
-      truncateInline(seriesResults, previewCount);
+      truncateInline(seriesResults, PREVIEW_ROWS);
+      const previewCount = seriesResults.reduce(
+        (sum, series) => sum + series.observations.length,
+        0,
+      );
+      if (registered) {
+        ctx.enrich.notice(
+          `Staged ${registered.rowCount} rows in ${registered.tableName}; showing ${previewCount} rows inline. Call fedreserve_dataframe_describe with ${JSON.stringify({ name: registered.tableName })}, then fedreserve_dataframe_query with ${JSON.stringify({ sql: `SELECT * FROM ${registered.tableName}` })}.`,
+        );
+      }
 
       return {
         series: seriesResults,
@@ -316,7 +350,7 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
               },
             }
           : {
-              message: `Canvas registration failed — showing up to ${PREVIEW_ROWS} rows inline per series. Total observations: ${totalObservations}.`,
+              message: `Canvas registration failed — showing up to ${PREVIEW_ROWS} rows inline. Total observations: ${totalObservations}.`,
             }),
       };
     }
@@ -344,9 +378,6 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
       lines.push(
         `Rows: ${result.dataset.row_count} | Expires: ${result.dataset.expires_at} | Preview rows: ${result.dataset.preview_rows} | Truncated: ${result.dataset.truncated}`,
       );
-      lines.push(
-        'Pass the dataset name to `fedreserve_dataframe_query` for SQL access to the full result set.\n',
-      );
     }
     if (result.message) {
       lines.push(`> ${result.message}\n`);
@@ -356,9 +387,11 @@ export const fedreserveGetObservationsTool = tool('fedreserve_get_observations',
 
     for (const s of result.series) {
       lines.push(`### ${s.series_id}`);
-      lines.push(
-        `Units: ${s.units} | Range: ${s.observation_start} → ${s.observation_end} | Count: ${s.observation_count}`,
-      );
+      const range =
+        s.observation_start !== null && s.observation_end !== null
+          ? ` | Range: ${s.observation_start} → ${s.observation_end}`
+          : '';
+      lines.push(`Units: ${s.units}${range} | Count: ${s.observation_count}`);
       if (s.observations.length > 0) {
         lines.push('');
         lines.push('| Date | Value |');

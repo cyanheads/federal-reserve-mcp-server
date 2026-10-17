@@ -188,7 +188,9 @@ export class FredApiService {
       api_key: this.apiKey,
       file_type: 'json',
       release_id: String(params.release_id),
-      include_release_dates_with_no_data: 'false',
+      include_release_dates_with_no_data: 'true',
+      realtime_start: new Date().toISOString().slice(0, 10),
+      sort_order: 'asc',
       limit: '5',
     });
     return this.get<FredReleaseDatesResponse>(`/release/dates`, query, ctx);

@@ -4,7 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveDataframeQueryTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-query.tool.js';
 
@@ -43,6 +43,28 @@ describe('fedreserveDataframeQueryTool', () => {
     expect(result.row_count).toBe(2);
     expect(result.rows).toHaveLength(2);
     expect(result.registered_as).toBeUndefined();
+  });
+
+  it.each([
+    { rowCount: 12, rows: [{ value: '1' }, { value: '2' }] },
+    { rowCount: 4, rows: [{ value: '1' }] },
+    { rowCount: 0, rows: [] },
+  ])('mirrors provider rowCount in both final enrichment surfaces: %j', async (providerResult) => {
+    mockQuery.mockResolvedValueOnce({ result: { columns: ['value'], ...providerResult } });
+    const result = await runToolContract(fedreserveDataframeQueryTool, {
+      sql: 'SELECT value FROM df_ABC12_DEF34',
+      preview: 2,
+      row_limit: 4,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      row_count: providerResult.rowCount,
+      totalCount: providerResult.rowCount,
+      rows: providerResult.rows,
+    });
+    expect(result.content.at(-1)).toMatchObject({
+      text: expect.stringContaining(`${providerResult.rowCount} total`),
+    });
   });
 
   it('returns registered_as and expires_at when register_as provided', async () => {

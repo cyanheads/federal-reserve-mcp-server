@@ -4,7 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetReleaseTool } from '@/mcp-server/tools/definitions/fedreserve-get-release.tool.js';
 
@@ -73,6 +73,33 @@ describe('fedreserveGetReleaseTool', () => {
     expect(result.scheduled_dates).toContain(FUTURE_DATE);
   });
 
+  it.each([
+    { dates: [] },
+    { dates: [{ date: '2026-10-16' }, { date: '2026-10-17' }, { date: '2026-11-13' }] },
+  ])(
+    'filters historical schedules while retaining today and upcoming dates: %j',
+    async ({ dates }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-17T23:55:00Z'));
+      try {
+        mockGetRelease.mockResolvedValueOnce({ releases: [RAW_RELEASE] });
+        mockGetReleaseSeries.mockResolvedValueOnce(RAW_SERIES_RESP);
+        mockGetReleaseDates.mockResolvedValueOnce({ release_dates: dates });
+        const result = await runToolContract(fedreserveGetReleaseTool, { release_id: 49 });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({
+          scheduled_dates: dates.length ? ['2026-10-17', '2026-11-13'] : [],
+        });
+        expect(JSON.stringify(result.content)).not.toContain('2026-10-16');
+        expect(JSON.stringify(result.content)).toContain(
+          dates.length ? '2026-11-13' : 'None listed',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('resolves a release by name search', async () => {
     mockGetAllReleases.mockResolvedValueOnce({
       releases: [RAW_RELEASE, { id: 10, name: 'Consumer Price Index' }],
@@ -85,6 +112,77 @@ describe('fedreserveGetReleaseTool', () => {
     const result = await fedreserveGetReleaseTool.handler(input, ctx);
 
     expect(result.release.id).toBe(49);
+  });
+
+  it.each([{ release_id: 49 }, { release_search: 'employment situation' }])(
+    'renders the full release series total through either lookup: %j',
+    async (lookup) => {
+      for (const offset of [0, 1, 100]) {
+        mockGetAllReleases.mockResolvedValueOnce({ releases: [RAW_RELEASE] });
+        mockGetRelease.mockResolvedValueOnce({ releases: [RAW_RELEASE] });
+        mockGetReleaseSeries.mockResolvedValueOnce({
+          ...RAW_SERIES_RESP,
+          count: 77,
+          seriess: offset === 100 ? [] : RAW_SERIES_RESP.seriess,
+        });
+        mockGetReleaseDates.mockResolvedValueOnce({ release_dates: [] });
+        const result = await runToolContract(fedreserveGetReleaseTool, {
+          ...lookup,
+          series_limit: 1,
+          series_offset: offset,
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({
+          series_count: 77,
+          totalCount: 77,
+          series_offset: offset,
+        });
+        expect(result.content.at(-1)).toMatchObject({ text: expect.stringContaining('77 total') });
+        expect(mockGetReleaseSeries).toHaveBeenLastCalledWith(
+          { release_id: 49, limit: 1, offset },
+          expect.anything(),
+        );
+      }
+    },
+  );
+
+  it.each([{}, { release_search: '  ' }, { release_id: 49, release_search: 'employment' }])(
+    'preserves the exactly-one lookup recovery on both surfaces: %j',
+    async (input) => {
+      const result = await runToolContract(fedreserveGetReleaseTool, input);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: { data: { reason: 'missing_input', recovery: { hint: expect.any(String) } } },
+      });
+      expect(JSON.stringify(result.content)).toContain('Recovery:');
+      expect(mockGetRelease).not.toHaveBeenCalled();
+      expect(mockGetAllReleases).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves ambiguous alternatives and recovery in the final error', async () => {
+    const alternatives = [
+      { id: 49, name: 'Employment Situation' },
+      { id: 50, name: 'Employment Costs Index' },
+    ];
+    mockGetAllReleases.mockResolvedValueOnce({ releases: alternatives });
+    const result = await runToolContract(fedreserveGetReleaseTool, {
+      release_search: 'employment',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        data: {
+          reason: 'ambiguous_release_search',
+          search_alternatives: alternatives,
+          recovery: { hint: expect.any(String) },
+        },
+      },
+    });
+    for (const alternative of alternatives)
+      expect(JSON.stringify(result.content)).toContain(alternative.name);
+    expect(JSON.stringify(result.content)).toContain('Recovery:');
+    expect(mockGetRelease).not.toHaveBeenCalled();
   });
 
   it('throws release_not_found when search matches nothing', async () => {

@@ -77,7 +77,9 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       .describe('Release metadata.'),
     scheduled_dates: z
       .array(z.string())
-      .describe('Upcoming release dates (ISO 8601). May be empty when not yet scheduled.'),
+      .describe(
+        'Nearest five scheduled release dates on or after today (UTC, YYYY-MM-DD), ascending. May be empty when not yet scheduled.',
+      ),
     series_count: z.number().describe('Total series count for this release.'),
     series_offset: z.number().describe('Pagination offset applied.'),
     series: z

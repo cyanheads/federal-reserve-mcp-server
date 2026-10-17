@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
@@ -12,6 +13,15 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
   description:
     'Search FRED series by full-text query across titles, tags, and notes. Returns matching series IDs with titles, units, frequency, and last-updated dates for use in follow-up observation or metadata calls. Supports post-search filtering by frequency, units, or seasonal adjustment status. To find series for a specific release, use fedreserve_get_release instead.',
   annotations: { readOnlyHint: true, openWorldHint: true },
+
+  errors: [
+    {
+      reason: 'invalid_filter',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A filter member is supplied without a complete nonblank filter pair.',
+      recovery: 'Supply both filter_variable and a nonblank filter_value, or omit both fields.',
+    },
+  ],
 
   input: z.object({
     query: z.string().min(1).describe('Search terms.'),
@@ -22,8 +32,11 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
     filter_variable: z
       .enum(['frequency', 'units', 'seasonal_adjustment'])
       .optional()
-      .describe('Post-search filter dimension.'),
-    filter_value: z.string().optional().describe('Value for filter_variable.'),
+      .describe('Post-search filter dimension; requires a nonblank filter_value.'),
+    filter_value: z
+      .string()
+      .optional()
+      .describe('Nonblank value for filter_variable; supply both filter fields or neither.'),
     tag_names: z
       .string()
       .optional()
@@ -73,6 +86,20 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
 
   async handler(input, ctx) {
     ctx.log.info('fedreserve_search_series', { query: input.query });
+    if (input.filter_variable !== undefined || input.filter_value !== undefined) {
+      if (input.filter_variable === undefined) {
+        throw ctx.fail(
+          'invalid_filter',
+          'filter_variable is missing; supply it together with a nonblank filter_value.',
+        );
+      }
+      if (input.filter_value === undefined || input.filter_value.trim().length === 0) {
+        throw ctx.fail(
+          'invalid_filter',
+          'filter_value is missing or blank; supply a nonblank value together with filter_variable.',
+        );
+      }
+    }
     const resp = await getFredApiService().searchSeries(
       {
         query: input.query,

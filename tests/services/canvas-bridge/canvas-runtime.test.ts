@@ -3,6 +3,7 @@
  * @module tests/services/canvas-bridge/canvas-runtime.test
  */
 
+import { z } from '@cyanheads/mcp-ts-core';
 import {
   CanvasRegistry,
   DataCanvas,
@@ -114,6 +115,37 @@ describe('installed canvas runtime', () => {
     expect(JSON.stringify(disabled)).toContain('FRED_DATAFRAME_DROP_ENABLED=true');
   });
 
+  it('creates fresh tables on independent spills without changing previous rows', async () => {
+    const http = createFetchMock([
+      {
+        match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
+        respond: Response.json({
+          units: 'lin',
+          observations: [{ date: '2024-01-01', value: '1.00' }],
+        }),
+      },
+    ]);
+    http.install();
+    try {
+      const context = createMockContext({ errors: fedreserveGetObservationsTool.errors });
+      const input = fedreserveGetObservationsTool.input.parse({
+        series_ids: ['UNRATE', 'FEDFUNDS'],
+      });
+      const first = await fedreserveGetObservationsTool.handler(input, context);
+      const second = await fedreserveGetObservationsTool.handler(input, context);
+      const one = fedreserveGetObservationsTool.output.parse(first).dataset!;
+      const two = fedreserveGetObservationsTool.output.parse(second).dataset!;
+      expect(one.name).not.toBe(two.name);
+      for (const name of [one.name, two.name]) {
+        const { result } = await getCanvasBridge()!.query(context, `SELECT * FROM ${name}`);
+        expect(result.rows).toHaveLength(2);
+        expect(result.rows.every((row) => row.value === '1.00')).toBe(true);
+      }
+    } finally {
+      http.restore();
+    }
+  });
+
   it.each([500, 501])(
     'keeps %i observations accessible across the spill boundary',
     async (count) => {
@@ -125,8 +157,8 @@ describe('installed canvas runtime', () => {
         {
           match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
           respond: Response.json({
-            observation_start: '2020-01-01',
-            observation_end: observations.at(-1)!.date,
+            observation_start: '1600-01-01',
+            observation_end: '9999-12-31',
             units: 'lin',
             observations,
           }),
@@ -134,12 +166,33 @@ describe('installed canvas runtime', () => {
       ]);
       http.install();
       try {
-        const result = await runToolContract(fedreserveGetObservationsTool, {
+        const state = ctx().state;
+        const observationsTool: typeof fedreserveGetObservationsTool = {
+          ...fedreserveGetObservationsTool,
+          handler: (input, context) =>
+            fedreserveGetObservationsTool.handler(input, { ...context, state }),
+        };
+        const describeTool: typeof fedreserveDataframeDescribeTool = {
+          ...fedreserveDataframeDescribeTool,
+          handler: (input, context) =>
+            fedreserveDataframeDescribeTool.handler(input, { ...context, state }),
+        };
+        const queryTool: typeof fedreserveDataframeQueryTool = {
+          ...fedreserveDataframeQueryTool,
+          handler: (input, context) =>
+            fedreserveDataframeQueryTool.handler(input, { ...context, state }),
+        };
+        const result = await runToolContract(observationsTool, {
           series_ids: 'UNRATE',
         });
         expect(result.isError).toBeFalsy();
         const output = fedreserveGetObservationsTool.output.parse(result.structuredContent);
         expect(output.total_observations).toBe(count);
+        expect(output.series[0]).toMatchObject({
+          observation_start: '2020-01-01',
+          observation_end: observations.at(-1)!.date,
+          observation_count: count,
+        });
         expect(output.series[0]?.observations).toHaveLength(count > 500 ? 20 : count);
         expect(output.series[0]?.observations[0]?.value).toBe('3.50');
         expect(JSON.stringify(result.content)).toContain('3.50');
@@ -150,13 +203,148 @@ describe('installed canvas runtime', () => {
             truncated: false,
           });
           expect(JSON.stringify(result.content)).toContain(output.dataset!.name);
-        } else expect(output.dataset).toBeUndefined();
+          const { notice } = z.object({ notice: z.string() }).parse(result.structuredContent);
+          expect(notice).toContain(output.dataset!.name);
+          expect(notice).toContain(`${count} rows`);
+          expect(notice).toContain('20 rows inline');
+          expect(notice).toContain(
+            `fedreserve_dataframe_describe with ${JSON.stringify({ name: output.dataset!.name })}`,
+          );
+          expect(notice).toContain(`SELECT * FROM ${output.dataset!.name}`);
+          expect(result.content.at(-1)).toMatchObject({ text: expect.stringContaining(notice) });
+          const described = await runToolContract(describeTool, { name: output.dataset!.name });
+          expect(described.structuredContent).toMatchObject({
+            dataframes: [
+              {
+                name: output.dataset!.name,
+                row_count: count,
+                column_schema: expect.arrayContaining([
+                  { name: 'value', type: 'VARCHAR', nullable: true },
+                ]),
+              },
+            ],
+          });
+          const queried = await runToolContract(queryTool, {
+            sql: `SELECT * FROM ${output.dataset!.name}`,
+            preview: 1000,
+          });
+          expect(queried.isError).toBeFalsy();
+          expect(
+            fedreserveDataframeQueryTool.output.parse(queried.structuredContent).rows,
+          ).toHaveLength(count);
+        } else {
+          expect(output.dataset).toBeUndefined();
+          expect(result.structuredContent).not.toHaveProperty('notice');
+        }
         expect(http.calls).toHaveLength(1);
       } finally {
         http.restore();
       }
     },
   );
+
+  it.each([false, true])(
+    'reports the actual total preview after registration (failure=%s)',
+    async (failed) => {
+      const http = createFetchMock([
+        {
+          match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
+          respond: Response.json({
+            units: 'lin',
+            observations: [{ date: '2024-01-01', value: '1.00' }],
+          }),
+        },
+      ]);
+      const registration = failed
+        ? vi.spyOn(canvas, 'acquire').mockRejectedValue(new Error('Unavailable'))
+        : undefined;
+      http.install();
+      try {
+        const result = await runToolContract(fedreserveGetObservationsTool, {
+          series_ids: ['UNRATE', 'FEDFUNDS'],
+        });
+        expect(result.isError).toBeFalsy();
+        const output = fedreserveGetObservationsTool.output.parse(result.structuredContent);
+        expect(output.series.flatMap((series) => series.observations)).toHaveLength(2);
+        if (failed) {
+          expect(output.dataset).toBeUndefined();
+          expect(result.structuredContent).not.toHaveProperty('notice');
+          expect(output.message).toContain('up to 20 rows inline');
+          expect(output.message).not.toContain('per series');
+        } else {
+          expect(output.dataset?.preview_rows).toBe(2);
+          const { notice } = z.object({ notice: z.string() }).parse(result.structuredContent);
+          expect(notice).toContain('2 rows inline');
+          expect(result.content.at(-1)).toMatchObject({ text: expect.stringContaining(notice) });
+        }
+      } finally {
+        http.restore();
+        registration?.mockRestore();
+      }
+    },
+  );
+
+  it('keeps a 20-row total budget and fetched counts when registration fails', async () => {
+    const http = createFetchMock([
+      {
+        match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
+        respond: Response.json({
+          units: 'lin',
+          observations: Array.from({ length: 60 }, (_, index) => ({
+            date: '2024-01-01',
+            value: String(index),
+          })),
+        }),
+      },
+    ]);
+    const registration = vi.spyOn(canvas, 'acquire').mockRejectedValue(new Error('Unavailable'));
+    http.install();
+    try {
+      const result = await runToolContract(fedreserveGetObservationsTool, {
+        series_ids: ['UNRATE', 'FEDFUNDS'],
+      });
+      const output = fedreserveGetObservationsTool.output.parse(result.structuredContent);
+      expect(output.series.map((series) => series.observations.length)).toEqual([10, 10]);
+      expect(output.series.map((series) => series.observation_count)).toEqual([60, 60]);
+      expect(output.total_observations).toBe(120);
+      expect(result.structuredContent).not.toHaveProperty('notice');
+    } finally {
+      http.restore();
+      registration.mockRestore();
+    }
+  });
+
+  it('does not turn cancellation during failed registration into inline success', async () => {
+    const controller = new AbortController();
+    const http = createFetchMock([
+      {
+        match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
+        respond: Response.json({
+          units: 'lin',
+          observations: [{ date: '2024-01-01', value: '1.00' }],
+        }),
+      },
+    ]);
+    const registration = vi.spyOn(canvas, 'acquire').mockImplementation(async () => {
+      controller.abort();
+      throw controller.signal.reason;
+    });
+    http.install();
+    try {
+      const result = await runToolContract(
+        fedreserveGetObservationsTool,
+        { series_ids: ['UNRATE', 'FEDFUNDS'] },
+        { context: { signal: controller.signal } },
+      );
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ error: { code: -32011 } });
+      expect(JSON.stringify(result.content)).toMatch(/abort|cancel/i);
+      expect(registration).toHaveBeenCalledTimes(1);
+    } finally {
+      http.restore();
+      registration.mockRestore();
+    }
+  });
 
   it('returns inline multi-series observations when canvas is disabled', async () => {
     initCanvasBridge(undefined);
@@ -201,6 +389,68 @@ describe('installed canvas runtime', () => {
       });
       expect(JSON.stringify(result.content)).toContain('Recovery:');
     }
+  });
+
+  it('preserves provider counts across previews, caps, empty pages, and chained dataframes', async () => {
+    const context = ctx();
+    const state = context.state;
+    const registered = await getCanvasBridge()!.registerDataframe(context, {
+      rows: Array.from({ length: 12 }, (_, i) => ({ i })),
+      sourceTool: 'fedreserve_get_observations',
+      queryParams: {},
+    });
+    expect(registered).toBeDefined();
+    const name = registered!.tableName;
+    const queryTool: typeof fedreserveDataframeQueryTool = {
+      ...fedreserveDataframeQueryTool,
+      handler: (args, context) => fedreserveDataframeQueryTool.handler(args, { ...context, state }),
+    };
+    const query = (input: z.input<typeof queryTool.input>) => runToolContract(queryTool, input);
+    const cases = [
+      { input: { sql: `SELECT i FROM ${name}`, preview: 2, row_limit: 20 }, count: 12, length: 2 },
+      { input: { sql: `SELECT i FROM ${name}`, preview: 2, row_limit: 4 }, count: 4, length: 2 },
+      { input: { sql: `SELECT i FROM ${name} LIMIT 2 OFFSET 20` }, count: 0, length: 0 },
+      {
+        input: {
+          sql: `SELECT i FROM ${name}`,
+          register_as: 'df_FIRST_TABLE',
+          preview: 2,
+          row_limit: 4,
+        },
+        count: 12,
+        length: 2,
+      },
+      {
+        input: {
+          sql: 'SELECT i FROM df_FIRST_TABLE WHERE i >= 3',
+          register_as: 'df_NEXT1_TABLE',
+          preview: 1,
+          row_limit: 4,
+        },
+        count: 9,
+        length: 1,
+      },
+      {
+        input: { sql: 'SELECT i FROM df_NEXT1_TABLE WHERE i >= 8', preview: 2, row_limit: 3 },
+        count: 3,
+        length: 2,
+      },
+    ];
+    for (const { input, count, length } of cases) {
+      const result = await query(input);
+      expect(result.isError, JSON.stringify({ input, result })).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ row_count: count, totalCount: count });
+      expect(fedreserveDataframeQueryTool.output.parse(result.structuredContent).rows).toHaveLength(
+        length,
+      );
+      expect(result.content.at(-1)).toMatchObject({
+        text: expect.stringContaining(`${count} total`),
+      });
+    }
+    const invalid = await query({ sql: 'SELECT 1', row_limit: 10001 });
+    expect(invalid.isError).toBe(true);
+    expect(invalid.structuredContent).toMatchObject({ error: { code: -32602 } });
+    expect(JSON.stringify(invalid.content)).toContain('row_limit');
   });
 
   it('returns the declared canvas-unavailable recovery on both error surfaces', async () => {

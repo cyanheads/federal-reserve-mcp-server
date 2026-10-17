@@ -185,4 +185,46 @@ describe('FredApiService', () => {
     expect(calledUrl).toContain('/releases');
     expect(calledUrl).toContain('limit=1000');
   });
+
+  it('requests only the nearest five nonpast release dates, including dates without data', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-17T23:55:00Z'));
+    try {
+      const dates = [
+        '2020-01-01',
+        '2026-10-16',
+        '2026-10-17',
+        '2026-11-13',
+        '2026-12-10',
+        '2027-01-14',
+        '2027-02-11',
+        '2030-01-01',
+      ];
+      mockFetch.mockImplementationOnce(async (input: string) => {
+        const query = new URL(input).searchParams;
+        expect(query.get('include_release_dates_with_no_data')).toBe('true');
+        expect(query.get('realtime_start')).toBe('2026-10-17');
+        expect(query.get('sort_order')).toBe('asc');
+        expect(query.get('limit')).toBe('5');
+        expect(query.get('release_id')).toBe('10');
+        return makeOkResponse({
+          release_dates: dates
+            .filter((date) => date >= query.get('realtime_start')!)
+            .slice(0, Number(query.get('limit')))
+            .map((date) => ({ date, release_id: 10 })),
+        });
+      });
+      const result = await service.getReleaseDates({ release_id: 10 }, ctx);
+      expect(result.release_dates.map((date) => date.date)).toEqual([
+        '2026-10-17',
+        '2026-11-13',
+        '2026-12-10',
+        '2027-01-14',
+        '2027-02-11',
+      ]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

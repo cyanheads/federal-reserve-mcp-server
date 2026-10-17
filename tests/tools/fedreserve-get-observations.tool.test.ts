@@ -4,6 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveGetObservationsTool } from '@/mcp-server/tools/definitions/fedreserve-get-observations.tool.js';
@@ -55,6 +56,24 @@ describe('fedreserveGetObservationsTool', () => {
     expect(result.total_observations).toBe(3);
   });
 
+  it.each([
+    ['series_not_found', 'The series does not exist'],
+    ['frequency_too_high', 'The frequency cannot be higher than the native frequency'],
+  ])('preserves the %s classification and recovery from the FRED body', async (reason, body) => {
+    mockGetObservations.mockRejectedValueOnce(
+      new McpError(JsonRpcErrorCode.ValidationError, 'FRED returned HTTP 400 Bad Request.', {
+        body,
+      }),
+    );
+    const result = await runToolContract(fedreserveGetObservationsTool, { series_ids: 'UNRATE' });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason, recovery: { hint: expect.any(String) } } },
+    });
+    expect(JSON.stringify(result.content)).toContain('Recovery:');
+    expect(JSON.stringify(result.content)).toContain(reason);
+  });
+
   it('preserves supplied observation dates and rejects malformed dates', () => {
     const dated = {
       series_ids: 'UNRATE',
@@ -67,6 +86,61 @@ describe('fedreserveGetObservationsTool', () => {
         fedreserveGetObservationsTool.input.safeParse({ ...dated, [field]: '01/01/2020' }).success,
       ).toBe(false);
     }
+  });
+
+  it('rejects the obsolete canvas_id input before fetching', async () => {
+    const result = await runToolContract(fedreserveGetObservationsTool, {
+      series_ids: 'UNRATE',
+      canvas_id: 'df_ABC12_DEF34',
+    } as never);
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { code: JsonRpcErrorCode.InvalidParams },
+    });
+    expect(JSON.stringify(result.content)).toContain('canvas_id');
+    expect(mockGetObservations).not.toHaveBeenCalled();
+    expect(fedreserveGetObservationsTool.input.shape).not.toHaveProperty('canvas_id');
+  });
+
+  it.each(['observation_start', 'observation_end'])(
+    'rejects impossible calendar dates in %s before fetching',
+    async (field) => {
+      for (const date of [
+        '2024-13-01',
+        '2024-00-10',
+        '2024-01-00',
+        '2024-04-31',
+        '2024-02-30',
+        '2023-02-29',
+        '1900-02-29',
+      ]) {
+        const result = await runToolContract(fedreserveGetObservationsTool, {
+          series_ids: 'UNRATE',
+          [field]: date,
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          error: { code: JsonRpcErrorCode.InvalidParams },
+        });
+        expect(JSON.stringify(result.content)).toContain(field);
+        expect(JSON.stringify(result.content)).toContain(date);
+      }
+      expect(mockGetObservations).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['2024-02-29', '2000-02-29'])('accepts the leap date %s unchanged', async (date) => {
+    mockGetObservations.mockResolvedValueOnce(UNRATE_OBS);
+    const result = await runToolContract(fedreserveGetObservationsTool, {
+      series_ids: 'UNRATE',
+      observation_start: date,
+      observation_end: date,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(mockGetObservations).toHaveBeenCalledWith(
+      { series_id: 'UNRATE', observation_start: date, observation_end: date },
+      expect.anything(),
+    );
   });
 
   it('treats blank optional dates as unset without forwarding them to FRED', async () => {
@@ -96,6 +170,93 @@ describe('fedreserveGetObservationsTool', () => {
 
     expect(typeof result.series[0]?.observations[0]?.value).toBe('string');
     expect(result.series[0]?.observations[0]?.value).toBe('3.50');
+  });
+
+  it.each([
+    {},
+    { observation_start: '2024-01-15' },
+    { observation_end: '2024-03-31' },
+    { observation_start: '2024-01-15', observation_end: '2024-03-31' },
+  ])(
+    'derives fetched bounds from all rows, independent of request bounds or order: %j',
+    async (bounds) => {
+      mockGetObservations.mockResolvedValueOnce({
+        observation_start: bounds.observation_start ?? '1600-01-01',
+        observation_end: bounds.observation_end ?? '9999-12-31',
+        units: 'lin',
+        observations: [
+          { date: '2024-03-01', value: '1' },
+          { date: '2024-02-01', value: '2' },
+        ],
+      });
+      const result = await runToolContract(fedreserveGetObservationsTool, {
+        series_ids: 'UNRATE',
+        ...bounds,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        series: [
+          { observation_start: '2024-02-01', observation_end: '2024-03-01', observation_count: 2 },
+        ],
+      });
+      expect(JSON.stringify(result.content)).toContain('Range: 2024-02-01 → 2024-03-01');
+      expect(mockGetObservations).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('retains full fetched bounds and counts after no-canvas preview slicing', async () => {
+    const observations = Array.from({ length: 501 }, (_, index) => ({
+      date: new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10),
+      value: String(index),
+    })).reverse();
+    mockGetObservations.mockResolvedValueOnce({
+      ...UNRATE_OBS,
+      observation_start: '1600-01-01',
+      observation_end: '9999-12-31',
+      observations,
+    });
+    const result = await runToolContract(fedreserveGetObservationsTool, { series_ids: 'UNRATE' });
+    const output = fedreserveGetObservationsTool.output.parse(result.structuredContent);
+    expect(output.series[0]).toMatchObject({
+      observation_start: '2020-01-01',
+      observation_end: observations[0]!.date,
+      observation_count: 501,
+    });
+    expect(output.series[0]?.observations).toHaveLength(20);
+    expect(JSON.stringify(result.content)).toContain(
+      `Range: 2020-01-01 → ${observations[0]!.date}`,
+    );
+    expect(mockGetObservations).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses null bounds for a successful empty series without displaying a fabricated range', async () => {
+    mockGetObservations
+      .mockResolvedValueOnce({ ...UNRATE_OBS, observations: [] })
+      .mockResolvedValueOnce(UNRATE_OBS);
+    const result = await runToolContract(fedreserveGetObservationsTool, {
+      series_ids: ['EMPTY', 'UNRATE'],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      series: [
+        {
+          series_id: 'EMPTY',
+          observation_start: null,
+          observation_end: null,
+          observation_count: 0,
+        },
+        {
+          series_id: 'UNRATE',
+          observation_start: '2020-01-01',
+          observation_end: '2020-03-01',
+          observation_count: 3,
+        },
+      ],
+    });
+    const text = String((result.content[0] as { text: string }).text);
+    expect(text.split('### EMPTY')[1]?.split('### UNRATE')[0]).not.toContain('Range:');
+    expect(text).not.toContain('null');
+    expect(mockGetObservations).toHaveBeenCalledTimes(2);
   });
 
   it('throws series_not_found when single series returns no observations and message includes not found', async () => {

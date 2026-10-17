@@ -74,7 +74,9 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
     columns: z.array(z.string()).describe('Column names in projection order.'),
     row_count: z
       .number()
-      .describe('Total rows the query produced (may exceed rows.length when capped).'),
+      .describe(
+        'Provider result row count; may exceed the inline preview. Without register_as, bounded by row_limit, not an uncapped SQL total.',
+      ),
     rows: z
       .array(z.record(z.string(), z.unknown()))
       .describe('Materialized rows, bounded by preview / row_limit.'),
@@ -91,7 +93,9 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   enrichment: {
     totalCount: z
       .number()
-      .describe('Total rows the query produced before the preview/row_limit cap was applied.'),
+      .describe(
+        'Provider result row count, matching row_count; may exceed the inline preview. Without register_as, bounded by row_limit, not an uncapped SQL total.',
+      ),
   },
 
   async handler(input, ctx) {

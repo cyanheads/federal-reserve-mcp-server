@@ -3,45 +3,49 @@
  * @module tests/tools/fedreserve-search-series.tool.test
  */
 
+import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveSearchSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-search-series.tool.js';
 
+const mockSearchSeries = vi.fn();
+const SEARCH_RESPONSE = {
+  count: 2,
+  offset: 0,
+  limit: 1000,
+  seriess: [
+    {
+      id: 'UNRATE',
+      title: 'Unemployment Rate',
+      units: 'Percent',
+      frequency: 'Monthly',
+      seasonal_adjustment: 'Seasonally Adjusted',
+      last_updated: '2026-05-01',
+      popularity: 95,
+    },
+    {
+      id: 'U6RATE',
+      title: 'Total Unemployed',
+      units: 'Percent',
+      frequency: 'Monthly',
+      seasonal_adjustment: 'Seasonally Adjusted',
+      last_updated: '2026-05-01',
+      // popularity omitted — sparse upstream field
+    },
+  ],
+};
+
 vi.mock('@/services/fred/fred-service.js', () => ({
-  getFredApiService: () => ({
-    searchSeries: vi.fn().mockResolvedValue({
-      count: 2,
-      offset: 0,
-      limit: 1000,
-      seriess: [
-        {
-          id: 'UNRATE',
-          title: 'Unemployment Rate',
-          units: 'Percent',
-          frequency: 'Monthly',
-          seasonal_adjustment: 'Seasonally Adjusted',
-          last_updated: '2026-05-01',
-          popularity: 95,
-        },
-        {
-          id: 'U6RATE',
-          title: 'Total Unemployed',
-          units: 'Percent',
-          frequency: 'Monthly',
-          seasonal_adjustment: 'Seasonally Adjusted',
-          last_updated: '2026-05-01',
-          // popularity omitted — sparse upstream field
-        },
-      ],
-    }),
-  }),
+  getFredApiService: () => ({ searchSeries: mockSearchSeries }),
 }));
 
 describe('fedreserveSearchSeriesTool', () => {
-  let ctx: ReturnType<typeof createMockContext>;
+  let ctx: HandlerContext<ReasonOf<typeof fedreserveSearchSeriesTool.errors>>;
 
   beforeEach(() => {
-    ctx = createMockContext();
+    ctx = createMockContext({ errors: fedreserveSearchSeriesTool.errors });
+    mockSearchSeries.mockReset().mockResolvedValue(SEARCH_RESPONSE);
   });
 
   it('returns matching series with all required fields', async () => {
@@ -57,6 +61,79 @@ describe('fedreserveSearchSeriesTool', () => {
       frequency: 'Monthly',
       popularity: 95,
     });
+  });
+
+  it.each(['Monthly', 'Annual', '  Monthly  '])(
+    'preserves the complete filter value %s verbatim',
+    async (value) => {
+      const result = await runToolContract(fedreserveSearchSeriesTool, {
+        query: 'unemployment',
+        filter_variable: 'frequency',
+        filter_value: value,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(mockSearchSeries).toHaveBeenCalledWith(
+        { query: 'unemployment', filter_variable: 'frequency', filter_value: value },
+        expect.anything(),
+      );
+      expect(result.structuredContent).toMatchObject({ active_filters: { frequency: value } });
+      expect(JSON.stringify(result.content)).toContain(`frequency=${value}`);
+    },
+  );
+
+  it.each([
+    { count: 77, offset: 1, returned: true },
+    { count: 0, offset: 0, returned: false },
+    { count: 77, offset: 100, returned: false },
+  ])('renders the upstream total in final enrichment: %j', async ({ count, offset, returned }) => {
+    mockSearchSeries.mockResolvedValueOnce({
+      ...SEARCH_RESPONSE,
+      count,
+      offset,
+      limit: 1,
+      seriess: returned ? SEARCH_RESPONSE.seriess.slice(0, 1) : [],
+    });
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      limit: 1,
+      offset,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ count, totalCount: count, offset });
+    expect(result.content.at(-1)).toMatchObject({
+      text: expect.stringContaining(`${count} total`),
+    });
+    expect(mockSearchSeries).toHaveBeenCalledWith(
+      { query: 'unemployment', limit: 1, offset },
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    { filter_variable: 'frequency' },
+    { filter_value: 'Monthly' },
+    { filter_variable: 'frequency', filter_value: '' },
+    { filter_variable: 'frequency', filter_value: '   ' },
+    { filter_value: '' },
+    { filter_value: '\t\n' },
+  ])('rejects an incomplete or blank filter pair before fetching: %j', async (filter) => {
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      ...filter,
+    } as never);
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: JsonRpcErrorCode.ValidationError,
+        data: {
+          reason: 'invalid_filter',
+          recovery: { hint: expect.stringContaining('filter_variable') },
+        },
+      },
+    });
+    expect(JSON.stringify(result.content)).toContain('filter_value');
+    expect(JSON.stringify(result.content)).toContain('Recovery:');
+    expect(mockSearchSeries).not.toHaveBeenCalled();
   });
 
   it('preserves optional popularity field from sparse upstream', async () => {

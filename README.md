@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.2.5-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/federal-reserve-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/federal-reserve-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/federal-reserve-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.2.5-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/federal-reserve-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/federal-reserve-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/federal-reserve-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.3-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 [![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/federal-reserve-mcp-server/releases/latest/download/federal-reserve-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=federal-reserve-mcp-server&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBjeWFuaGVhZHMvZmVkZXJhbC1yZXNlcnZlLW1jcC1zZXJ2ZXIiXX0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22federal-reserve-mcp-server%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40cyanheads%2Ffederal-reserve-mcp-server%22%5D%7D)
 
@@ -19,7 +19,7 @@
 
 ## Overview
 
-Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Louis) — ~800K time series covering output, prices, employment, money, rates, housing, trade, and international macro. Search series, fetch metadata and observations, browse the category tree, look up releases, and query large result sets with SQL over DataCanvas. Runs as a stdio process or a local Streamable HTTP server.
+Economic data from FRED, the St. Louis Fed's database of ~800K time series on output, prices, employment, money, rates, housing, and trade. Search series, pull observations, browse categories and releases, and run SQL over large results.
 
 ### Tools
 
@@ -39,6 +39,7 @@ Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Lou
 ### `fedreserve_search_series` <sub>tool</sub>
 
 - Full-text or series-ID search, with `frequency`, `units`, `seasonal_adjustment`, and `tag_names` filters
+- Supply `filter_variable` and a nonblank `filter_value` together, or omit both; incomplete pairs return `invalid_filter` before searching
 - Pagination via `limit` (default and max 1000) and `offset` (max 4999; FRED caps searchable results at 5000)
 - Output includes `active_filters` when applied and `popularity` (0–100) when FRED provides it; empty results suggest a broader query or category browsing
 
@@ -56,7 +57,9 @@ Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Lou
 
 - Accepts one series ID or up to 10, with `observation_start` / `observation_end`, native unit transforms, and frequency downsampling via `aggregation_method` (`avg`, `sum`, `eop`)
 - Returns date/value observations with string values that preserve trailing zeros, plus per-series failures
-- Multi-series or >500-row results spill to DataCanvas, returning `dataset.name` for `fedreserve_dataframe_query`; without canvas, returns a truncated inline preview
+- Dates must be valid calendar dates in `YYYY-MM-DD` format; empty optional dates are treated as unset
+- Per-series bounds are the earliest/latest fetched dates before preview slicing, or `null` for an empty series in a batch; counts remain full fetched counts
+- Multi-series or >500-row results spill to a fresh DataCanvas table with up to 20 total preview rows, distributed across series. The shared `notice` names `dataset.name` and gives executable `fedreserve_dataframe_describe` then `fedreserve_dataframe_query` calls; without canvas, returns a truncated inline preview
 
 ---
 
@@ -70,7 +73,7 @@ Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Lou
 ### `fedreserve_get_release` <sub>tool</sub>
 
 - Exactly one of `release_id` (integer) or `release_search` (case-insensitive substring, filtered client-side — FRED has no server-side release search) is required
-- Returns release name, link, notes, upcoming scheduled dates, and a paginated series list (`series_limit` max 1000, `series_offset`)
+- Returns release name, link, notes, the nearest five scheduled dates on or after today (UTC, ascending), and a paginated series list (`series_limit` max 1000, `series_offset`)
 - An ambiguous name search returns up to 10 `search_alternatives` instead of guessing; retry with the exact `release_id`
 
 ---
@@ -85,8 +88,10 @@ Federal Reserve economic data from the FRED API (Federal Reserve Bank of St. Lou
 ### `fedreserve_dataframe_query` <sub>tool</sub>
 
 - Runs a single read-only DuckDB SELECT against `df_<id>` tables, including joins, aggregates, window functions, and CTEs; external files and system catalogs are blocked
+- Engine-setting functions such as `current_schema()` and `current_setting()`, and dynamic table lookup through `query_table()`, are rejected; query the staged tables directly
 - `row_limit` caps returned rows (default 1000, max 10000); `preview` sets the inline sample. BIGINT results serialize as strings
 - Optional `register_as` persists the result as a new dataframe with its own TTL for further queries
+- `row_count` and `totalCount` mirror the provider result count, which can exceed the inline preview; without `register_as`, `row_limit` also caps that count
 
 ---
 

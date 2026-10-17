@@ -4,18 +4,24 @@
 
 ### Tools
 
-5 tools (+1 opt-in dataframe drop):
+7 tools (+1 opt-in dataframe drop):
 
 | Name | Description | Key Inputs | Annotations |
 |:-----|:------------|:-----------|:------------|
 | `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags. Returns matching series IDs with titles, units, frequency, and last-updated dates for use in follow-up observation or metadata calls. Supports post-search filtering by frequency, units, or seasonal adjustment status. To find series for a specific release, use `fedreserve_get_release` instead. | `query` (text), `search_type?` (enum: full_text, series_id — default full_text), `filter_variable?` (enum: frequency, units, seasonal_adjustment), `filter_value?`, `tag_names?` (semicolon-delimited), `limit?`, `offset?` | `readOnlyHint: true`, `openWorldHint: true` |
 | `fedreserve_get_series` | Retrieves metadata for one or more FRED series — title, units, frequency, seasonal adjustment status, observation range, popularity, and notes. Accepts up to 50 series IDs; fires parallel upstream requests (no batch endpoint exists). | `series_ids` (string or string[≤50]) | `readOnlyHint: true`, `openWorldHint: false` |
-| `fedreserve_get_observations` | Fetches observation data (date + value pairs) for one or more FRED series over a date range. Fires one upstream request per series in parallel (no multi-series batch endpoint). Supports FRED's built-in unit transformations (`lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`). Multi-series or >500-row results spill to a DataCanvas table and return a `df_<id>` handle for SQL querying. | `series_ids` (string or string[≤10]), `observation_start?` (ISO 8601 date), `observation_end?`, `units?` (enum), `frequency?` (enum), `aggregation_method?` (enum: avg/sum/eop), `canvas_id?` | `readOnlyHint: true`, `openWorldHint: false` |
+| `fedreserve_get_observations` | Fetches observation data (date + value pairs) for one or more FRED series over a date range. Fires one upstream request per series in parallel (no multi-series batch endpoint). Supports FRED's built-in unit transformations (`lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log`). Multi-series or >500-row results spill to a fresh DataCanvas table and return a `df_<id>` handle for SQL querying. | `series_ids` (string or string[≤10]), `observation_start?` (calendar date, YYYY-MM-DD), `observation_end?`, `units?` (enum), `frequency?` (enum), `aggregation_method?` (enum: avg/sum/eop) | `readOnlyHint: true`, `openWorldHint: false` |
 | `fedreserve_browse_categories` | Navigates the FRED category tree. Returns child categories and a sample of series when viewing a leaf. Provide `category_id` to drill down; omit to start at the root (ID 0). | `category_id?` (integer, default 0) | `readOnlyHint: true`, `openWorldHint: false` |
 | `fedreserve_get_release` | Returns metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a `release_id` integer or a name query — the name path fetches all releases via `/fred/releases` and matches client-side (FRED has no server-side release search). Returns release name, link, scheduled dates, and a paginated list of its series. | `release_id?` (integer), `release_search?` (text — case-insensitive substring match against release names; one of the two required), `series_limit?`, `series_offset?` | `readOnlyHint: true`, `openWorldHint: true` |
 | `fedreserve_dataframe_describe` | List canvas dataframes materialized by `fedreserve_get_observations`, with provenance, TTL, schema, and row count. Read-only. | `name?` (df_\<id\> — omit to list all) | `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false` |
 | `fedreserve_dataframe_query` | Run a single-statement SELECT across canvas dataframes. Supports joins, aggregates, window functions, and CTEs across any `df_<id>` handles you hold. `register_as` persists the result as a new dataframe with a fresh TTL. Writes, DDL, DROP, COPY, PRAGMA, ATTACH, and external-file table functions are rejected by the framework SQL gate. System catalogs are denied at the bridge layer. | `sql` (SELECT statement), `register_as?` (new df name), `preview?` (rows inline), `row_limit?` (default 1000, max 10000) | `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false` |
 | `fedreserve_dataframe_drop` _(opt-in)_ | Drop a canvas dataframe by name. Idempotent — returns `dropped: false` when nothing matched. Exposed only when `FRED_DATAFRAME_DROP_ENABLED=true`; off by default since TTL handles cleanup. | `name` (df_\<id\>) | `readOnlyHint: false`, `idempotentHint: true`, `openWorldHint: false`, `destructiveHint: true` |
+
+Search filter pairs are atomic: if either `filter_variable` or `filter_value` is supplied, both are required and the value must be nonblank. Validation precedes FRED requests; complete values are passed through unchanged.
+
+Observation date inputs require calendar-valid `YYYY-MM-DD` dates; empty optional dates are unset. Each successful series reports the full fetched array's minimum/maximum dates before preview slicing, or `null` bounds when empty. A single empty series retains `no_observations_in_range`.
+
+Release schedules request up to five dates on or after today in UTC, including dates without data, in ascending order. Historical dates are also filtered from the returned schedule.
 
 ### Resources
 
@@ -39,7 +45,7 @@ federal-reserve-mcp-server wraps the Federal Reserve Bank of St. Louis's FRED AP
 - Free API key required (`FRED_API_KEY` env var); one key covers all tool calls
 - Rate limit: 120 requests/minute per key — serial tool calls are well within limit; burst workflows (multi-series fetch) should batch where possible
 - Observation data are date + value pairs in JSON; vintage (ALFRED) data deferred to v1+
-- DataCanvas (Node + DuckDB, opt-in) used for multi-series observation spillover; tools degrade gracefully when `canvas_id` is unavailable (return inline preview + truncation notice)
+- DataCanvas (Node + DuckDB, opt-in) used for multi-series observation spillover; tools degrade gracefully when DataCanvas is unavailable (return inline preview + truncation notice)
 - No write operations — the FRED API is read-only
 
 ---
@@ -70,7 +76,7 @@ Implementation mirrors `src/services/canvas-bridge/` in secedgar-mcp-server.
 | Backoff | 1–2s base delay (API is rate-limited, not ephemeral) |
 | 429 handling | Detect `429` response → `ServiceUnavailable`, retryable |
 | Parse failure | Detect HTML error pages → transient error, not `SerializationError` |
-| Pagination | `fedreserve_get_release` series list and `fedreserve_search_series` paginate via `offset`+`limit` (FRED's native params). `fedreserve_get_observations` also supports `limit`/`offset` for very long series (default limit 100000 — effectively all rows for most series; explicit pagination only needed for ultra-long daily series). |
+| Pagination | `fedreserve_get_release` series list and `fedreserve_search_series` paginate via offset and limit inputs. `FredApiService.getObservations` supports FRED's `limit`/`offset`, but `fedreserve_get_observations` does not expose them. |
 
 ---
 
@@ -167,10 +173,11 @@ Declared `errors` entries for domain failures (`ctx.fail` type-checked against t
 | `fedreserve_get_series` | `series_not_found` | `NotFound` | Series ID exists in format but FRED returns no data | Yes — verify ID |
 | `fedreserve_get_series` | `partial_failure` | `ServiceUnavailable` | Some IDs in a batch returned errors; partial results returned | Yes |
 | `fedreserve_get_observations` | `series_not_found` | `NotFound` | Series ID not found on FRED | Yes — verify ID |
-| `fedreserve_get_observations` | `frequency_too_high` | `InvalidParams` | Requested `frequency` aggregation is higher than the series native frequency | No — use lower frequency or omit |
+| `fedreserve_get_observations` | `frequency_too_high` | `ValidationError` | Requested `frequency` aggregation is higher than the series native frequency | No — use lower frequency or omit |
 | `fedreserve_get_observations` | `no_observations_in_range` | `NotFound` | Valid series but date range contains no observations | No — expand range |
+| `fedreserve_search_series` | `invalid_filter` | `ValidationError` | A filter member is supplied without a complete nonblank pair | No — supply both members or omit both |
 | `fedreserve_get_release` | `release_not_found` | `NotFound` | `release_id` not found, or `release_search` matched no releases | Yes — try broader search or check ID |
-| `fedreserve_get_release` | `ambiguous_release_search` | `InvalidParams` | `release_search` matched multiple releases with similar names | No — use `release_id` instead |
+| `fedreserve_get_release` | `ambiguous_release_search` | `ValidationError` | `release_search` matched multiple releases with similar names | No — use `release_id` instead |
 | All dataframe tools | `canvas_unavailable` | `ServiceUnavailable` | `CANVAS_PROVIDER_TYPE` is not `duckdb` | No — set env var and restart |
 | All tools | _(baseline)_ | `ServiceUnavailable` | FRED API 5xx, 429, or timeout | Yes — retried by service layer |
 
@@ -207,8 +214,8 @@ Declared `errors` entries for domain failures (`ctx.fail` type-checked against t
 
 **Dataframe chain: cross-series SQL analytics**
 
-1. `fedreserve_get_observations(series_ids=["UNRATE","CPIAUCSL"], observation_start="2010-01-01")` → spills both series to canvas; output includes `dataset: "df_abc12_def34"`
-2. `fedreserve_dataframe_query(sql="SELECT date, MAX(CASE WHEN series_id='UNRATE' THEN value END) AS unrate, MAX(CASE WHEN series_id='CPIAUCSL' THEN value END) AS cpi FROM df_abc12_def34 GROUP BY date ORDER BY date")` → pivot both series into a single wide table
+1. `fedreserve_get_observations(series_ids=["UNRATE","CPIAUCSL"], observation_start="2010-01-01")` → spills both series to canvas; output includes `dataset.name`, such as `df_ABC12_DEF34`
+2. `fedreserve_dataframe_query(sql="SELECT date, MAX(CASE WHEN series_id='UNRATE' THEN value END) AS unrate, MAX(CASE WHEN series_id='CPIAUCSL' THEN value END) AS cpi FROM df_ABC12_DEF34 GROUP BY date ORDER BY date")` → pivot both series into a single wide table
 3. `fedreserve_dataframe_query(sql="SELECT date, AVG(unrate) OVER (ORDER BY date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) AS rolling_12m_unrate FROM (...)")` → rolling window over the pivoted result
 4. `fedreserve_dataframe_query(sql="...", register_as="df_xyz99_pqr77")` → persist the enriched analysis as a new dataframe with a fresh TTL for follow-up calls without re-running the source query
 
@@ -219,11 +226,11 @@ This chain enables YoY comparisons, rolling averages, JOIN across series at diff
 | Condition | Behavior |
 |:----------|:---------|
 | Single series, short range | Inline observations array. No `dataset` field in output. |
-| Multi-series or >500 rows | Inline preview (first 20 rows) + `dataset: "df_<id>"` in output. Pass the handle to `fedreserve_dataframe_query`. |
-| `canvas_id` provided | Appends to existing canvas table; returns the same `dataset` handle. |
+| Multi-series or >500 rows | Up to 20 total inline rows distributed across series + `dataset.name` for a fresh table. Describe its schema, then query it with SELECT. |
+| Repeated observation fetch | Registers a fresh table; previous dataframes remain unchanged. |
 | Canvas unavailable (Workers / DuckDB disabled) | Inline preview + truncation notice with row count. No `dataset` field. |
 
-The `dataset` field in the `fedreserve_get_observations` output schema is `string | undefined` — present only when spillover occurred. Agents should check for its presence before calling `fedreserve_dataframe_query`.
+The optional `dataset` object carries `name`, `row_count`, `expires_at`, actual `preview_rows`, and `truncated`. After successful registration, a shared `notice` reaches both response surfaces: call `fedreserve_dataframe_describe` with `{"name":"<dataset.name>"}`, then `fedreserve_dataframe_query` with `{"sql":"SELECT * FROM <dataset.name>"}`. No staging notice is returned when registration fails or canvas is disabled.
 
 ---
 
@@ -243,7 +250,7 @@ The `dataset` field in the `fedreserve_get_observations` output schema is `strin
 ### Answered questions
 
 - **ALFRED vintages in v1?** → Skipped. FRED alone covers the vast majority of use cases; ALFRED adds significant API surface complexity for marginal v1 value. Deferred to a future `fedreserve_get_vintage` tool.
-- **DataCanvas for multi-series observations?** → Yes. Multi-series + long date ranges can easily exceed context budget. `canvas_id` is opt-in on `fedreserve_get_observations`; tool degrades to inline preview when DuckDB/canvas is unavailable.
+- **DataCanvas for multi-series observations?** → Yes. Multi-series + long date ranges can easily exceed context budget. Each spill registers a fresh table; the tool degrades to inline preview when DuckDB/canvas is unavailable. Appending is not exposed because registration replaces rows rather than appending them.
 - **Unit transformations: server-side or pass-through?** → Server-side via FRED's native `units` parameter. FRED supports `lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log` natively; delegating to the API avoids recomputing against potentially incomplete local data and is always correct relative to the full series history.
 - **Curated "common asks" lookup baked in?** → Rely on search. A hardcoded mapping adds maintenance burden, goes stale, and is redundant once `fedreserve_search_series` is working. The API's search is good enough for "unemployment rate" → `UNRATE`.
 - **`fedreserve_get_release`: separate "search release" and "get release" tools?** → Consolidated into one tool with either `release_id` or `release_search` required. The two paths have the same output contract; splitting adds surface without gain.
