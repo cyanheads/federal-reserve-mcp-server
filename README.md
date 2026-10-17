@@ -38,67 +38,62 @@ Economic data from FRED, the St. Louis Fed's database of ~800K time series on ou
 
 ### `fedreserve_search_series` <sub>tool</sub>
 
-- Full-text or series-ID search, with `frequency`, `units`, `seasonal_adjustment`, and `tag_names` filters
-- Supply `filter_variable` and a nonblank `filter_value` together, or omit both; incomplete pairs return `invalid_filter` before searching
+- Full-text or series-ID search, with `frequency`, `units`, `seasonal_adjustment`, and `tag_names` filters; `filter_variable` and `filter_value` must be supplied together or the call returns `invalid_filter`
 - Pagination via `limit` (default and max 1000) and `offset` (max 4999; FRED caps searchable results at 5000)
-- Output includes `active_filters` when applied and `popularity` (0–100) when FRED provides it; empty results suggest a broader query or category browsing
+- Output includes `active_filters` and `popularity` (0–100) when available; empty results suggest a broader query or category browsing
 
 ---
 
 ### `fedreserve_get_series` <sub>tool</sub>
 
-- Accepts a single series ID or up to 50 in one call; fires parallel upstream requests (no FRED batch endpoint exists)
+- Accepts one series ID or up to 50 per call
 - Returns title, units, frequency, seasonal adjustment, observation range, popularity, and notes per series
-- Partial-batch failures land in a `failed` array with per-ID error messages; a single unresolved ID throws `series_not_found` instead
+- Failed IDs in a batch land in a `failed` array with error messages; a single unresolved ID throws `series_not_found`
 
 ---
 
 ### `fedreserve_get_observations` <sub>tool</sub>
 
-- Accepts one series ID or up to 10, with `observation_start` / `observation_end`, native unit transforms, and frequency downsampling via `aggregation_method` (`avg`, `sum`, `eop`)
-- Returns date/value observations with string values that preserve trailing zeros, plus per-series failures
-- Dates must be valid calendar dates in `YYYY-MM-DD` format; empty optional dates are treated as unset
-- Per-series bounds are the earliest/latest fetched dates before preview slicing, or `null` for an empty series in a batch; counts remain full fetched counts
-- Multi-series or >500-row results spill to a fresh DataCanvas table with up to 20 total preview rows, distributed across series. The shared `notice` names `dataset.name` and gives executable `fedreserve_dataframe_describe` then `fedreserve_dataframe_query` calls; without canvas, returns a truncated inline preview
+- Accepts one series ID or up to 10, with `observation_start` / `observation_end` (`YYYY-MM-DD`), native unit transforms, and frequency downsampling via `aggregation_method` (`avg`, `sum`, `eop`)
+- Returns date/value observations (values are strings that keep trailing zeros) plus per-series failures
+- Multi-series or >500-row results go to a DataCanvas table with a 20-row preview; the `notice` names `dataset.name` and the `fedreserve_dataframe_describe` and `fedreserve_dataframe_query` calls to run next. Without canvas, you get a truncated inline preview
 
 ---
 
 ### `fedreserve_browse_categories` <sub>tool</sub>
 
-- Omit `category_id` to start at the root (ID 0); returns the category, its child categories, and — for a leaf with no children — a sample of up to 10 series
+- Omit `category_id` to start at the root (ID 0); returns the category and its children, or up to 10 sample series for a leaf
 - An unknown `category_id` throws `category_not_found`
 
 ---
 
 ### `fedreserve_get_release` <sub>tool</sub>
 
-- Exactly one of `release_id` (integer) or `release_search` (case-insensitive substring, filtered client-side — FRED has no server-side release search) is required
-- Returns release name, link, notes, the nearest five scheduled dates on or after today (UTC, ascending), and a paginated series list (`series_limit` max 1000, `series_offset`)
-- An ambiguous name search returns up to 10 `search_alternatives` instead of guessing; retry with the exact `release_id`
+- Takes exactly one of `release_id` or `release_search` (case-insensitive name substring)
+- Returns release name, link, notes, the next five scheduled dates, and a paginated series list (`series_limit` max 1000, `series_offset`)
+- An ambiguous name returns up to 10 `search_alternatives`; retry with the exact `release_id`
 
 ---
 
 ### `fedreserve_dataframe_describe` <sub>tool</sub>
 
-- Lists active DataCanvas dataframes for the tenant, or one by `name`, newest first
+- Lists active DataCanvas dataframes, newest first, or one by `name`
 - Each entry carries `source_tool`, `query_params`, `created_at`, `expires_at`, `row_count`, `truncated` / `max_rows`, and `column_schema`
 
 ---
 
 ### `fedreserve_dataframe_query` <sub>tool</sub>
 
-- Runs a single read-only DuckDB SELECT against `df_<id>` tables, including joins, aggregates, window functions, and CTEs; external files and system catalogs are blocked
-- Engine-setting functions such as `current_schema()` and `current_setting()`, and dynamic table lookup through `query_table()`, are rejected; query the staged tables directly
-- `row_limit` caps returned rows (default 1000, max 10000); `preview` sets the inline sample. BIGINT results serialize as strings
-- Optional `register_as` persists the result as a new dataframe with its own TTL for further queries
-- `row_count` and `totalCount` mirror the provider result count, which can exceed the inline preview; without `register_as`, `row_limit` also caps that count
+- Runs one read-only DuckDB SELECT against `df_<id>` tables (joins, aggregates, window functions, CTEs); external files, system catalogs, and engine-setting functions are blocked
+- `row_limit` caps returned rows (default 1000, max 10000) and `preview` sets the inline sample; BIGINT results serialize as strings
+- `register_as` saves the result as a new dataframe with its own TTL
 
 ---
 
 ### `fedreserve_dataframe_drop` <sub>tool</sub>
 
-- Opt-in — enabled when `FRED_DATAFRAME_DROP_ENABLED=true`; otherwise registered as a disabled tool card (visibility depends on the client's protocol version)
-- Drops the named dataframe early; returns `dropped: false` when absent. TTL also reclaims expired tables
+- Opt-in: enabled by `FRED_DATAFRAME_DROP_ENABLED=true`, otherwise registered as disabled
+- Drops the named dataframe early; returns `dropped: false` when it doesn't exist
 
 ## Features
 
@@ -106,19 +101,17 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): s
 
 FRED-specific:
 
+- Requires a `FRED_API_KEY` for the FRED API (up to 120 requests/minute)
+- Unit transforms and frequency downsampling run on FRED's side against the full series history
+- Large observation results spill to DataCanvas tables you can query with SQL
 - Dataframe tools require `CANVAS_PROVIDER_TYPE=duckdb` and report `canvas_unavailable` otherwise
-- `FRED_API_KEY`-gated access to the St. Louis Fed's FRED API (`api.stlouisfed.org/fred`) at up to 120 requests/minute
-- Parallel multi-series fetching via `Promise.allSettled`, with partial success reported per ID rather than failing the whole batch
-- DataCanvas spillover for multi-series or >500-row observation results, queryable via `fedreserve_dataframe_query`
-- FRED's native unit transformations and frequency downsampling delegated server-side for precision against the full series history
-- Category tree navigation across all FRED domains — Money & Banking, National Accounts, Employment, Prices, Housing, Trade, and more
 
 Agent-friendly output:
 
-- Graceful partial failure — `fedreserve_get_series` and `fedreserve_get_observations` return per-ID `failed` rows with error messages instead of failing the whole request
-- Ambiguous-input disambiguation — `fedreserve_get_release`'s name search returns typed `search_alternatives` instead of guessing when multiple releases match
-- Provenance on DataCanvas output — every dataframe carries `source_tool`, `query_params`, and TTL fields so agents can reason about where staged data came from and how long it's valid
-- Degrades gracefully — `fedreserve_get_observations` falls back to a truncated inline preview with an explanatory `message` when DataCanvas isn't configured, rather than failing
+- Partial failures: `fedreserve_get_series` and `fedreserve_get_observations` return per-ID `failed` rows instead of failing the whole request
+- Ambiguous release names return `search_alternatives` instead of a guess
+- Every dataframe carries `source_tool`, `query_params`, and TTL fields
+- Without DataCanvas, `fedreserve_get_observations` returns a truncated inline preview with an explanatory `message`
 
 ## Getting started
 
@@ -226,21 +219,21 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 |:---------|:------------|:--------|
 | `FRED_API_KEY` | **Required.** API key from [stlouisfed.org](https://research.stlouisfed.org/docs/api/api_key.html). | — |
 | `FRED_BASE_URL` | Override the FRED API base URL. | `https://api.stlouisfed.org/fred` |
-| `FRED_DATASET_TTL_SECONDS` | Sliding TTL for DataCanvas-registered observation tables (seconds). | `86400` |
+| `FRED_DATASET_TTL_SECONDS` | TTL for DataCanvas observation tables, in seconds. | `86400` |
 | `FRED_DATAFRAME_DROP_ENABLED` | Set `true` to enable `fedreserve_dataframe_drop`; otherwise registered as disabled. | `false` |
 | `CANVAS_PROVIDER_TYPE` | Set to `duckdb` to enable DataCanvas SQL querying for observation results. | — |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for HTTP server. | `3010` |
-| `MCP_SESSION_MODE` | HTTP session posture: `auto`, `stateful`, or `stateless`. Declared as `stateless` in `src/index.ts` — no tool holds per-session state. | `stateless` |
+| `MCP_SESSION_MODE` | HTTP session mode: `auto`, `stateful`, or `stateless`. | `stateless` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
 | `LOGS_DIR` | Directory for log files (Node.js only). | `<project-root>/logs` |
 | `STORAGE_PROVIDER_TYPE` | Storage backend. | `in-memory` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry instrumentation](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry). | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base OTLP URL for traces (`/v1/traces`) and metrics (`/v1/metrics`). | — |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Opt-in OTLP log endpoint, used as-is; the base endpoint does not enable logs. | — |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | OTLP log endpoint (logs are off unless set). | — |
 | `LOG_TOOL_FAILURE_PAYLOADS` | Log failed tool arguments and results with key-name redaction; secrets in free-form values are not redacted. | `false` |
-| `LOG_TOOL_FAILURE_PAYLOAD_MAX_BYTES` | Per-payload UTF-8 byte cap for failed-call logging. | `16384` |
+| `LOG_TOOL_FAILURE_PAYLOAD_MAX_BYTES` | Byte cap per logged payload. | `16384` |
 
 See [`.env.example`](./.env.example) for the full list of optional overrides.
 
