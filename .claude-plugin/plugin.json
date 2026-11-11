@@ -30,6 +30,13 @@
       "description": "Required. Free key from research.stlouisfed.org/docs/api/api_key.html, sent as the api_key query parameter on every request. Grants 120 requests/minute.",
       "sensitive": true,
       "required": true
+    },
+    "fred_clamp_limits": {
+      "type": "boolean",
+      "title": "Defer excess series IDs",
+      "description": "Accept up to 100 series IDs and return unprocessed IDs for the next call. Disable to reject batches above 10 observation IDs or 50 metadata IDs.",
+      "default": true,
+      "required": false
     }
   },
   "mcpServers": {
@@ -38,7 +45,8 @@
       "args": ["-y", "@cyanheads/federal-reserve-mcp-server"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
-        "FRED_API_KEY": "${user_config.fred_api_key}"
+        "FRED_API_KEY": "${user_config.fred_api_key}",
+        "FRED_CLAMP_LIMITS": "${user_config.fred_clamp_limits}"
       }
     }
   }

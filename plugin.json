@@ -1,0 +1,35 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "federal-reserve-mcp-server",
+  "version": "0.3.0",
+  "description": "Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
+  "homepage": "https://github.com/cyanheads/federal-reserve-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/federal-reserve-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "federal-reserve",
+    "fedreserve",
+    "fred",
+    "fred-api",
+    "federal-reserve-economic-data",
+    "economic-data",
+    "economics",
+    "financial-data",
+    "macroeconomics",
+    "time-series",
+    "stlouisfed",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "stdio",
+    "streamable-http",
+    "typescript",
+    "bun",
+    "ai-agent"
+  ]
+}

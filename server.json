@@ -30,7 +30,7 @@
         },
         {
           "name": "FRED_DATASET_TTL_SECONDS",
-          "description": "Sliding TTL for DataCanvas-registered observation tables (seconds).",
+          "description": "Lifetime of a registered dataframe from creation, in seconds.",
           "format": "string",
           "isRequired": false,
           "default": "86400"
@@ -41,6 +41,13 @@
           "format": "string",
           "isRequired": false,
           "default": "false"
+        },
+        {
+          "name": "FRED_CLAMP_LIMITS",
+          "description": "Accept up to 100 series IDs and return IDs beyond the 10-observation or 50-metadata processing limit in deferred_ids; false restores strict limits.",
+          "format": "string",
+          "isRequired": false,
+          "default": "true"
         },
         {
           "name": "MCP_LOG_LEVEL",
@@ -82,7 +89,7 @@
         },
         {
           "name": "FRED_DATASET_TTL_SECONDS",
-          "description": "Sliding TTL for DataCanvas-registered observation tables (seconds).",
+          "description": "Lifetime of a registered dataframe from creation, in seconds.",
           "format": "string",
           "isRequired": false,
           "default": "86400"
@@ -93,6 +100,13 @@
           "format": "string",
           "isRequired": false,
           "default": "false"
+        },
+        {
+          "name": "FRED_CLAMP_LIMITS",
+          "description": "Accept up to 100 series IDs and return IDs beyond the 10-observation or 50-metadata processing limit in deferred_ids; false restores strict limits.",
+          "format": "string",
+          "isRequired": false,
+          "default": "true"
         },
         {
           "name": "MCP_HTTP_HOST",

@@ -9,22 +9,13 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
-
-/**
- * Escape one Markdown table cell so its rendered text equals the value the query
- * returned. Backslashes go first: a backslash is itself the Markdown escape
- * character, so escaping the pipe without doubling it lets the renderer consume
- * the value's own backslash and silently drop characters from the cell.
- */
-function escapeCell(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
-}
 
 export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   title: 'Query FRED Dataframes',
   description:
-    'Run a single-statement SELECT against canvas dataframes registered by fedreserve_get_observations. Standard DuckDB SQL — joins, aggregates, window functions, CTEs all supported. Reference dataframes by the df_<id> handles returned from fedreserve_get_observations or listed by fedreserve_dataframe_describe. Read-only: writes, DDL, DROP, COPY, PRAGMA, ATTACH, and external-file table functions are rejected. System catalogs are denied at the bridge layer. Optional register_as chains the result as a new dataframe with a fresh TTL. Requires CANVAS_PROVIDER_TYPE=duckdb.',
+    'Run a single-statement SELECT against canvas dataframes registered by fedreserve_get_observations. Standard DuckDB SQL — joins, aggregates, window functions, CTEs all supported. Reference dataframes by the df_<id> handles returned from fedreserve_get_observations or listed by fedreserve_dataframe_describe. Read-only: writes, DDL, DROP, COPY, PRAGMA, ATTACH, and external-file table functions are rejected. System catalogs are denied at the bridge layer. Optional register_as chains the result as a new dataframe with a fresh TTL. Unavailable when the server sets CANVAS_PROVIDER_TYPE=none.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   errors: [
@@ -66,7 +57,7 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       .max(10000)
       .default(1000)
       .describe(
-        'Hard cap on rows materialized in the response. Default 1000, max 10000. Full results live on-canvas under register_as when provided.',
+        'Cap on unregistered results and inline previews. Default 1000, max 10000. With register_as, the full result is stored on-canvas.',
       ),
   }),
 
@@ -77,6 +68,10 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       .describe(
         'Provider result row count; may exceed the inline preview. Without register_as, bounded by row_limit, not an uncapped SQL total.',
       ),
+    truncated: z
+      .literal(true)
+      .optional()
+      .describe('Set when the SQL result exceeds row_limit without register_as.'),
     rows: z
       .array(z.record(z.string(), z.unknown()))
       .describe('Materialized rows, bounded by preview / row_limit.'),
@@ -93,9 +88,8 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   enrichment: {
     totalCount: z
       .number()
-      .describe(
-        'Provider result row count, matching row_count; may exceed the inline preview. Without register_as, bounded by row_limit, not an uncapped SQL total.',
-      ),
+      .optional()
+      .describe('Exact SQL result row count, omitted when truncated.'),
   },
 
   async handler(input, ctx) {
@@ -117,11 +111,12 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       returned: result.rows.length,
       registeredAs: meta?.tableName,
     });
-    ctx.enrich.total(result.rowCount);
+    if (!result.truncated) ctx.enrich.total(result.rowCount);
 
     return {
       columns: result.columns,
       row_count: result.rowCount,
+      ...(result.truncated && { truncated: true as const }),
       rows: result.rows,
       registered_as: meta?.tableName,
       expires_at: meta?.expiresAt,
@@ -129,32 +124,58 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   },
 
   format: (result) => {
+    const capNotice = result.truncated
+      ? `Result capped at ${result.row_count} ${result.row_count === 1 ? 'row' : 'rows'}. Narrow the query or use \`register_as\` to materialize the full result.`
+      : '';
+    // Markdown normalizes line breaks and NULs, and cannot distinguish SQL NULL from empty cells.
+    const needsJson = (value: string) => /[\n\r]/.test(value) || value.includes('\0');
+    if (
+      (result.registered_as !== undefined && needsJson(result.registered_as)) ||
+      result.columns.some(needsJson) ||
+      result.rows.some((row) =>
+        Object.values(row).some(
+          (value) => value === null || (typeof value === 'string' && needsJson(value)),
+        ),
+      )
+    ) {
+      const json = markdown()
+        .codeBlock(JSON.stringify(result, null, 2), 'json')
+        .build();
+      return [
+        {
+          type: 'text',
+          text: capNotice ? `${json}\n\n${capNotice}` : json,
+        },
+      ];
+    }
     const lines: string[] = [];
     if (result.registered_as) {
       lines.push(
-        `Registered as \`${result.registered_as}\` (expires ${result.expires_at ?? 'unknown'}).`,
+        `Registered as ${markdown().inlineCode(result.registered_as).build()} (expires ${result.expires_at ?? 'unknown'}).`,
       );
     }
-    const cappedNote =
+    const previewNote =
       result.row_count > result.rows.length
         ? ` (showing ${result.rows.length} of ${result.row_count})`
         : '';
-    lines.push(`**${result.row_count} rows**${cappedNote}\n`);
+    lines.push(`**${result.row_count} rows**${previewNote}`);
+    if (capNotice) lines.push(capNotice);
+    lines.push('');
 
     if (result.rows.length === 0) {
       lines.push('_No rows._');
       return [{ type: 'text', text: lines.join('\n') }];
     }
 
-    const header = `| ${result.columns.map(escapeCell).join(' | ')} |`;
+    const header = `| ${result.columns.map(escapeMarkdownInline).join(' | ')} |`;
     const sep = `| ${result.columns.map(() => '---').join(' | ')} |`;
     lines.push(header, sep);
     for (const row of result.rows) {
       const cells = result.columns.map((c) => {
         const v = row[c];
         if (v === null || v === undefined) return '';
-        if (typeof v === 'string') return escapeCell(v);
-        if (typeof v === 'object') return escapeCell(JSON.stringify(v));
+        if (typeof v === 'string') return escapeMarkdownInline(v);
+        if (typeof v === 'object') return escapeMarkdownInline(JSON.stringify(v));
         return String(v);
       });
       lines.push(`| ${cells.join(' | ')} |`);

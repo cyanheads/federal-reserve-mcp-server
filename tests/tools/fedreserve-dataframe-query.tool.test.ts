@@ -140,14 +140,30 @@ describe('fedreserveDataframeQueryTool', () => {
     expect(text).toContain('df_XYZ99_PQR77');
   });
 
-  it('format renders an empty cell for null and undefined, and stringifies other primitives', () => {
+  it('format preserves SQL NULL in JSON and stringifies other primitives', () => {
     const blocks = fedreserveDataframeQueryTool.format!({
       columns: ['a', 'b', 'c', 'd'],
       row_count: 1,
       rows: [{ a: null, b: undefined, c: 42, d: true }],
     });
     const text = (blocks[0] as { text: string }).text;
-    expect(text).toContain('|  |  | 42 | true |');
+    expect(text).toMatch(/^```json\n/);
+    expect(JSON.parse(text.slice(8, text.lastIndexOf('```')))).toMatchObject({
+      rows: [{ a: null, c: 42, d: true }],
+    });
+  });
+
+  it('keeps line breaks and NULs in query results that a Markdown table cannot render', () => {
+    const column = 'heading\nwith a break';
+    const result = {
+      columns: [column],
+      row_count: 1,
+      rows: [{ [column]: 'first\r\nsecond\0' }],
+    };
+    const [block] = fedreserveDataframeQueryTool.format!(result);
+    const text = (block as { text: string }).text;
+    expect(text).toMatch(/^```json\n/);
+    expect(JSON.parse(text.slice(8, text.lastIndexOf('```')))).toEqual(result);
   });
 
   it('format says no rows when the result set is empty', () => {
@@ -191,17 +207,17 @@ describe('fedreserveDataframeQueryTool', () => {
         rows: [{ a: String.raw`x\|y`, b: String.raw`a\*b` }],
       });
       const text = (blocks[0] as { text: string }).text;
-      expect(text).toContain(String.raw`| x\\\|y | a\\*b |`);
+      expect(text).toContain(String.raw`| x\\\|y | a\\\*b |`);
     });
 
     it('escapes a backslash in a serialized-object cell', () => {
       const blocks = fedreserveDataframeQueryTool.format!({
         columns: ['a'],
         row_count: 1,
-        // JSON.stringify already doubles the backslash; escaping doubles it again.
+        // One pair decodes to a backslash and the final backslash before t is literal.
         rows: [{ a: { path: String.raw`C:\tmp` } }],
       });
-      expect((blocks[0] as { text: string }).text).toContain(String.raw`C:\\\\tmp`);
+      expect((blocks[0] as { text: string }).text).toContain(String.raw`C:\\\tmp`);
     });
 
     it('escapes a pipe and a backslash in a column name', () => {

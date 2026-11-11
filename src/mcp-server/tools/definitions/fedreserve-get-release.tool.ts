@@ -5,14 +5,20 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdownLink, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { FredDomainError } from '@/services/fred/fred-error.js';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 import type { FredReleaseResponse } from '@/services/fred/types.js';
+
+const ReleaseDatesSchema = z.object({
+  release_dates: z.array(z.object({ date: z.string() })),
+});
 
 export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
   title: 'Get FRED Release',
   description:
-    'Return metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a release_id integer or a release_search text query — release_search performs a substring match across all FRED releases; prefer release_id when you know the ID. Returns release name, link, scheduled dates, and a paginated list of its series. Provide exactly one of release_id or release_search.',
+    'Return metadata and associated series for a FRED release (e.g., Employment Situation, Consumer Price Index). Accepts a release_id integer or a release_search text query — release_search performs a substring match across all FRED releases. Prefer release_id when you know the ID. Returns release name, link, scheduled dates when available, and a paginated series list ordered by descending popularity. Provide exactly one of release_id or release_search.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   errors: [
@@ -80,6 +86,10 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       .describe(
         'Nearest five scheduled release dates on or after today (UTC, YYYY-MM-DD), ascending. May be empty when not yet scheduled.',
       ),
+    scheduled_dates_unavailable: z
+      .literal(true)
+      .optional()
+      .describe('True when FRED could not supply the release schedule.'),
     series_count: z.number().describe('Total series count for this release.'),
     series_offset: z.number().describe('Pagination offset applied.'),
     series: z
@@ -129,127 +139,157 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       throw ctx.fail('missing_input', 'Provide release_id or release_search, not both.');
     }
 
-    let releaseId: number;
+    // Name lookup, release metadata, and the series page share one clock.
+    return await withRetry(
+      async ({ signal }) => {
+        const fred = getFredApiService();
+        const fredContext = { ...ctx, signal };
+        let releaseId: number;
 
-    if (input.release_id !== undefined) {
-      releaseId = input.release_id;
-      ctx.log.info('fedreserve_get_release by id', { release_id: releaseId });
-    } else if (input.release_search !== undefined) {
-      const searchTerm = input.release_search.trim().toLowerCase();
-      ctx.log.info('fedreserve_get_release by search', { term: searchTerm });
+        if (input.release_id !== undefined) {
+          releaseId = input.release_id;
+          ctx.log.info('fedreserve_get_release by id', { release_id: releaseId });
+        } else if (input.release_search !== undefined) {
+          const searchTerm = input.release_search.trim().toLowerCase();
+          ctx.log.info('fedreserve_get_release by search', { term: searchTerm });
 
-      const allResp = await getFredApiService().getAllReleases(ctx);
-      const matches = (allResp.releases ?? []).filter((r) =>
-        r.name.toLowerCase().includes(searchTerm),
-      );
+          const allResp = await fred.getAllReleases(fredContext);
+          const matches = (allResp.releases ?? []).filter((r) =>
+            r.name.toLowerCase().includes(searchTerm),
+          );
 
-      const firstMatch = matches[0];
-      if (!firstMatch) {
-        throw ctx.fail('release_not_found', `No FRED releases matched "${input.release_search}".`);
-      }
+          const firstMatch = matches[0];
+          if (!firstMatch) {
+            throw ctx.fail(
+              'release_not_found',
+              `No FRED releases matched "${input.release_search}".`,
+            );
+          }
 
-      const exact =
-        matches.length > 1 ? matches.find((r) => r.name.toLowerCase() === searchTerm) : undefined;
+          const exact =
+            matches.length > 1
+              ? matches.find((r) => r.name.toLowerCase() === searchTerm)
+              : undefined;
 
-      if (matches.length === 1 || exact) {
-        releaseId = (exact ?? firstMatch).id;
-      } else {
-        const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
-        const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
-        throw ctx.fail(
-          'ambiguous_release_search',
-          `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
-          {
-            search_alternatives: alternatives,
+          if (matches.length === 1 || exact) {
+            releaseId = (exact ?? firstMatch).id;
+          } else {
+            const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
+            const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
+            throw ctx.fail(
+              'ambiguous_release_search',
+              `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
+              {
+                search_alternatives: alternatives,
+              },
+            );
+          }
+        } else {
+          // Unreachable — the missing_input guards above ensure exactly one of
+          // release_id / release_search is present.
+          throw ctx.fail('missing_input', 'Provide either release_id or release_search.');
+        }
+
+        const limit = input.series_limit ?? 20;
+        const offset = input.series_offset ?? 0;
+
+        let releaseResp: FredReleaseResponse;
+        try {
+          releaseResp = await fred.getRelease(releaseId, fredContext);
+        } catch (err) {
+          signal.throwIfAborted();
+          if (err instanceof FredDomainError && err.reason === 'release_not_found') {
+            throw ctx.fail('release_not_found', err.message, undefined, { cause: err });
+          }
+          throw err;
+        }
+
+        const release = releaseResp.releases?.[0];
+        if (!release) {
+          throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`);
+        }
+
+        const [seriesResp, datesResp] = await Promise.all([
+          fred.getReleaseSeries({ release_id: releaseId, limit, offset }, fredContext),
+          fred.getReleaseDates({ release_id: releaseId }, fredContext).catch((err: unknown) => {
+            ctx.signal.throwIfAborted();
+            // If only the schedule is still pending at the deadline, keep the primary data.
+            if (signal.aborted && err === signal.reason) return;
+            if (
+              !(err instanceof McpError) ||
+              (err.code !== JsonRpcErrorCode.ServiceUnavailable &&
+                err.code !== JsonRpcErrorCode.RateLimited &&
+                err.code !== JsonRpcErrorCode.Timeout &&
+                err.code !== JsonRpcErrorCode.NotFound &&
+                err.code !== JsonRpcErrorCode.Unauthorized &&
+                err.code !== JsonRpcErrorCode.Forbidden &&
+                err.code !== JsonRpcErrorCode.SerializationError)
+            ) {
+              throw err;
+            }
+          }),
+        ]);
+        ctx.signal.throwIfAborted();
+        ctx.enrich.total(seriesResp.count ?? 0);
+
+        const schedule = ReleaseDatesSchema.safeParse(datesResp);
+        const scheduledDates = (schedule.data?.release_dates ?? [])
+          .map((d) => d.date)
+          .filter((d) => d >= new Date().toISOString().slice(0, 10));
+
+        return {
+          release: {
+            id: release.id,
+            name: release.name,
+            ...(typeof release.press_release === 'boolean' && {
+              press_release: release.press_release,
+            }),
+            ...(release.link?.trim() && { link: release.link.trim() }),
+            ...(release.notes?.trim() && { notes: release.notes.trim() }),
           },
-        );
-      }
-    } else {
-      // Unreachable — the missing_input guards above ensure exactly one of
-      // release_id / release_search is present.
-      throw ctx.fail('missing_input', 'Provide either release_id or release_search.');
-    }
-
-    const limit = input.series_limit ?? 20;
-    const offset = input.series_offset ?? 0;
-
-    let releaseResp: FredReleaseResponse;
-    try {
-      releaseResp = await getFredApiService().getRelease(releaseId, ctx);
-    } catch (err) {
-      const fredBody = String(
-        (err != null && typeof err === 'object' && 'data' in err
-          ? (err as { data?: { body?: unknown } }).data?.body
-          : undefined) ?? '',
-      ).toLowerCase();
-      if (
-        fredBody.includes('does not exist') ||
-        fredBody.includes('bad request') ||
-        fredBody.includes('not found')
-      ) {
-        throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`);
-      }
-      throw err;
-    }
-
-    const [seriesResp, datesResp] = await Promise.all([
-      getFredApiService().getReleaseSeries({ release_id: releaseId, limit, offset }, ctx),
-      getFredApiService()
-        .getReleaseDates({ release_id: releaseId }, ctx)
-        .catch(() => ({
-          release_dates: [],
-        })),
-    ]);
-    ctx.enrich.total(seriesResp.count ?? 0);
-
-    const release = releaseResp.releases?.[0];
-    if (!release) {
-      throw ctx.fail('release_not_found', `Release ${releaseId} not found on FRED.`);
-    }
-
-    const scheduledDates = (datesResp.release_dates ?? [])
-      .map((d) => d.date)
-      .filter((d) => d >= new Date().toISOString().slice(0, 10));
-
-    return {
-      release: {
-        id: release.id,
-        name: release.name,
-        ...(typeof release.press_release === 'boolean' && {
-          press_release: release.press_release,
-        }),
-        ...(release.link?.trim() && { link: release.link.trim() }),
-        ...(release.notes?.trim() && { notes: release.notes.trim() }),
+          scheduled_dates: scheduledDates,
+          ...(!schedule.success && { scheduled_dates_unavailable: true as const }),
+          series_count: seriesResp.count ?? 0,
+          series_offset: offset,
+          series: (seriesResp.seriess ?? []).map((s) => ({
+            id: s.id,
+            title: s.title ?? '',
+            units: s.units ?? '',
+            frequency: s.frequency ?? '',
+            seasonal_adjustment: s.seasonal_adjustment ?? '',
+            last_updated: s.last_updated ?? '',
+          })),
+        };
       },
-      scheduled_dates: scheduledDates,
-      series_count: seriesResp.count ?? 0,
-      series_offset: offset,
-      series: (seriesResp.seriess ?? []).map((s) => ({
-        id: s.id,
-        title: s.title ?? '',
-        units: s.units ?? '',
-        frequency: s.frequency ?? '',
-        seasonal_adjustment: s.seasonal_adjustment ?? '',
-        last_updated: s.last_updated ?? '',
-      })),
-    };
+      {
+        operation: 'FRED release lookup',
+        signal: ctx.signal,
+        deadlineMs: 50_000,
+        maxRetries: 0,
+        isTransient: () => false,
+      },
+    );
   },
 
   format: (result) => {
     const lines: string[] = [];
     const r = result.release;
-    lines.push(`## Release: ${r.name} (ID: ${r.id})`);
+    const title = `Release: ${escapeMarkdownInline(r.name)} (ID: ${r.id})`;
+    lines.push(title.includes('\n') ? title : `## ${title}`);
     if (r.press_release !== undefined) {
       lines.push(`Press release: ${r.press_release ? 'Yes' : 'No'}`);
     }
-    if (r.link) lines.push(`Link: ${r.link}`);
-    if (r.notes) lines.push(`> ${r.notes}`);
+    if (r.link) lines.push(`Link: ${markdownLink(r.link, r.link)}`);
+    if (r.notes) lines.push(`> ${escapeMarkdownInline(r.notes)}`);
     lines.push('');
 
     if (result.scheduled_dates.length > 0) {
       lines.push(`**Scheduled dates:** ${result.scheduled_dates.join(', ')}`);
-    } else {
+    } else if (!result.scheduled_dates_unavailable) {
       lines.push('**Scheduled dates:** None listed');
+    }
+    if (result.scheduled_dates_unavailable) {
+      lines.push('**Scheduled dates:** unavailable (request failed)');
     }
     lines.push('');
 
@@ -258,7 +298,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
     );
     for (const s of result.series) {
       lines.push(
-        `- **${s.id}**: ${s.title} (${s.units}, ${s.frequency}, ${s.seasonal_adjustment}, updated ${s.last_updated})`,
+        `- **${escapeMarkdownInline(s.id)}**: ${escapeMarkdownInline(s.title)} (${escapeMarkdownInline(s.units)}, ${escapeMarkdownInline(s.frequency)}, ${escapeMarkdownInline(s.seasonal_adjustment)}, updated ${escapeMarkdownInline(s.last_updated)})`,
       );
     }
 
@@ -266,7 +306,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       lines.push('');
       lines.push('**Other matching releases (use release_id for exact match):**');
       for (const alt of result.search_alternatives) {
-        lines.push(`- [${alt.id}] ${alt.name}`);
+        lines.push(`- [${alt.id}] ${escapeMarkdownInline(alt.name)}`);
       }
     }
 

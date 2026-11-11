@@ -1,6 +1,6 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-10-17 22:32:21
+Generated on: 2026-11-11 09:15:55
 
 ```text
 federal-reserve-mcp-server/
@@ -39,6 +39,8 @@ federal-reserve-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -137,6 +139,9 @@ federal-reserve-mcp-server/
 │   ├── release-github.ts
 │   ├── split-changelog.ts
 │   └── tree.ts
+├── skills/
+│   └── federal-reserve-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
 │   │   └── server-config.ts
@@ -146,24 +151,27 @@ federal-reserve-mcp-server/
 │   │   ├── resources/
 │   │   │   └── definitions/
 │   │   └── tools/
-│   │       └── definitions/
-│   │           ├── fedreserve-browse-categories.tool.ts
-│   │           ├── fedreserve-dataframe-describe.tool.ts
-│   │           ├── fedreserve-dataframe-drop.tool.ts
-│   │           ├── fedreserve-dataframe-query.tool.ts
-│   │           ├── fedreserve-get-observations.tool.ts
-│   │           ├── fedreserve-get-release.tool.ts
-│   │           ├── fedreserve-get-series.tool.ts
-│   │           ├── fedreserve-search-series.tool.ts
-│   │           └── index.ts
+│   │       ├── definitions/
+│   │       │   ├── fedreserve-browse-categories.tool.ts
+│   │       │   ├── fedreserve-dataframe-describe.tool.ts
+│   │       │   ├── fedreserve-dataframe-drop.tool.ts
+│   │       │   ├── fedreserve-dataframe-query.tool.ts
+│   │       │   ├── fedreserve-get-observations.tool.ts
+│   │       │   ├── fedreserve-get-release.tool.ts
+│   │       │   ├── fedreserve-get-series.tool.ts
+│   │       │   └── fedreserve-search-series.tool.ts
+│   │       └── prepare-series-batch.ts
 │   ├── services/
 │   │   ├── canvas-bridge/
 │   │   │   └── canvas-bridge.ts
 │   │   └── fred/
+│   │       ├── fred-error.ts
 │   │       ├── fred-service.ts
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
+│   ├── config/
+│   │   └── server-config.test.ts
 │   ├── prompts/
 │   ├── resources/
 │   ├── services/
@@ -197,7 +205,9 @@ federal-reserve-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json

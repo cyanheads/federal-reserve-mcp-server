@@ -6,7 +6,30 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getFredApiService } from '@/services/fred/fred-service.js';
+
+const DEFAULT_LIMIT = 20;
+const MAX_SEARCH_OFFSET = 4000;
+const SEARCH_WINDOW = 5000;
+
+const FREQUENCIES = new Map(
+  [
+    'Daily',
+    'Weekly',
+    'Biweekly',
+    'Monthly',
+    'Quarterly',
+    'Semiannual',
+    'Annual',
+    'Not Applicable',
+  ].map((value) => [value.toLowerCase(), value]),
+);
+const SEASONAL_ADJUSTMENTS = new Map(
+  ['Seasonally Adjusted', 'Not Seasonally Adjusted', 'Seasonally Adjusted Annual Rate'].map(
+    (value) => [value.toLowerCase(), value],
+  ),
+);
 
 export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
   title: 'Search FRED Series',
@@ -20,6 +43,12 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       code: JsonRpcErrorCode.ValidationError,
       when: 'A filter member is supplied without a complete nonblank filter pair.',
       recovery: 'Supply both filter_variable and a nonblank filter_value, or omit both fields.',
+    },
+    {
+      reason: 'search_offset_exceeded',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The requested offset exceeds FRED’s search ceiling.',
+      recovery: 'Use offset 4000 or lower. Narrow the search or add filters to reach more matches.',
     },
   ],
 
@@ -36,19 +65,23 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
     filter_value: z
       .string()
       .optional()
-      .describe('Nonblank value for filter_variable; supply both filter fields or neither.'),
+      .describe(
+        'Nonblank value for filter_variable. Frequency and seasonal adjustment labels are normalized. Units must match FRED’s spelling and case exactly. Supply both filter fields or neither.',
+      ),
     tag_names: z
       .string()
       .optional()
       .describe('Semicolon-delimited list of tag names to filter by.'),
-    limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 1000).'),
+    limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 20).'),
     offset: z
       .number()
       .int()
       .min(0)
       .max(4999)
       .optional()
-      .describe('Pagination offset (FRED caps searchable results at 5000; offset must be ≤ 4999).'),
+      .describe(
+        'FRED accepts offsets through 4000 and exposes only the first 5000 matches. For the final page, start at 4000 and use limit 1000.',
+      ),
   }),
 
   /** FRED's own `/series/search` parameter for the query is `search_text`. */
@@ -82,32 +115,52 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
 
   enrichment: {
     totalCount: z.number().describe('Total matching series count before pagination was applied.'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Guidance for empty pages or matches beyond FRED’s search window.'),
   },
 
   async handler(input, ctx) {
     ctx.log.info('fedreserve_search_series', { query: input.query });
-    if (input.filter_variable !== undefined || input.filter_value !== undefined) {
-      if (input.filter_variable === undefined) {
+    if (input.offset !== undefined && input.offset > MAX_SEARCH_OFFSET) {
+      throw ctx.fail(
+        'search_offset_exceeded',
+        `FRED accepts search offsets through ${MAX_SEARCH_OFFSET}.`,
+      );
+    }
+
+    const filterVariable = input.filter_variable;
+    let filterValue = input.filter_value?.trim();
+    if (filterVariable !== undefined || filterValue !== undefined) {
+      if (filterVariable === undefined) {
         throw ctx.fail(
           'invalid_filter',
           'filter_variable is missing; supply it together with a nonblank filter_value.',
         );
       }
-      if (input.filter_value === undefined || input.filter_value.trim().length === 0) {
+      if (!filterValue) {
         throw ctx.fail(
           'invalid_filter',
           'filter_value is missing or blank; supply a nonblank value together with filter_variable.',
         );
+      }
+      if (filterVariable === 'frequency') {
+        const comma = filterValue.indexOf(',');
+        const base = comma < 0 ? filterValue : filterValue.slice(0, comma).trimEnd();
+        filterValue = FREQUENCIES.get(base.toLowerCase()) ?? filterValue;
+      } else if (filterVariable === 'seasonal_adjustment') {
+        filterValue = SEASONAL_ADJUSTMENTS.get(filterValue.toLowerCase()) ?? filterValue;
       }
     }
     const resp = await getFredApiService().searchSeries(
       {
         query: input.query,
         ...(input.search_type && { search_type: input.search_type }),
-        ...(input.filter_variable && { filter_variable: input.filter_variable }),
-        ...(input.filter_value && { filter_value: input.filter_value }),
+        ...(filterVariable !== undefined && { filter_variable: filterVariable }),
+        ...(filterValue !== undefined && { filter_value: filterValue }),
         ...(input.tag_names && { tag_names: input.tag_names }),
-        ...(input.limit !== undefined && { limit: input.limit }),
+        limit: input.limit ?? DEFAULT_LIMIT,
         ...(input.offset !== undefined && { offset: input.offset }),
       },
       ctx,
@@ -115,10 +168,30 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
     ctx.enrich.total(resp.count);
 
     const activeFilters: Record<string, string> = {};
-    if (input.filter_variable && input.filter_value) {
-      activeFilters[input.filter_variable] = input.filter_value;
+    if (filterVariable !== undefined && filterValue !== undefined) {
+      activeFilters[filterVariable] = filterValue;
     }
     if (input.tag_names) activeFilters.tag_names = input.tag_names;
+
+    const series = resp.seriess ?? [];
+    const notices: string[] = [];
+    if (series.length === 0) {
+      if (resp.count > 0) {
+        notices.push(`No series on this page. Try a lower offset than ${resp.offset}.`);
+      } else {
+        notices.push(
+          filterVariable === undefined
+            ? 'Try broadening the search term or using fedreserve_browse_categories to explore available series.'
+            : 'FRED filters match exact values after normalization. Try another filter value, remove the filter, or broaden the search.',
+        );
+      }
+    }
+    if (resp.count > SEARCH_WINDOW) {
+      notices.push(
+        `FRED exposes only the first ${SEARCH_WINDOW} matches. For the final page use offset ${MAX_SEARCH_OFFSET} and limit 1000. To reach more matches, narrow the search or add filters.`,
+      );
+    }
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
       count: resp.count,
@@ -126,7 +199,7 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       limit: resp.limit,
       query: input.query,
       ...(Object.keys(activeFilters).length > 0 && { active_filters: activeFilters }),
-      series: (resp.seriess ?? []).map((s) => ({
+      series: series.map((s) => ({
         id: s.id,
         title: s.title ?? '',
         units: s.units ?? '',
@@ -139,36 +212,24 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
   },
 
   format: (result) => {
-    if (result.series.length === 0) {
-      const filterPart =
-        result.active_filters && Object.keys(result.active_filters).length > 0
-          ? ` (${Object.entries(result.active_filters)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(', ')})`
-          : '';
-      return [
-        {
-          type: 'text',
-          text: `No series found for "${result.query}"${filterPart}. Try broadening the search term, removing filters, or using fedreserve_browse_categories to explore available series.`,
-        },
-      ];
-    }
     const filterSummary =
       result.active_filters && Object.keys(result.active_filters).length > 0
         ? ` | Filters: ${Object.entries(result.active_filters)
-            .map(([k, v]) => `${k}=${v}`)
+            .map(([k, v]) => `${escapeMarkdownInline(k)}=${escapeMarkdownInline(v)}`)
             .join(', ')}`
         : '';
     const lines = [
-      `**Query:** "${result.query}" — ${result.count} total match(es), showing ${result.series.length} (offset ${result.offset}, limit ${result.limit})${filterSummary}\n`,
+      `**Query:** "${escapeMarkdownInline(result.query)}" — ${result.count} total match(es), showing ${result.series.length} (offset ${result.offset}, limit ${result.limit})${filterSummary}\n`,
     ];
+    if (result.count === 0) lines.push('No series found.');
     for (const s of result.series) {
-      lines.push(`### ${s.id}: ${s.title}`);
+      const title = `${escapeMarkdownInline(s.id)}: ${escapeMarkdownInline(s.title)}`;
+      lines.push(title.includes('\n') ? title : `### ${title}`);
       lines.push(
-        `**Units:** ${s.units} | **Frequency:** ${s.frequency} | **Seasonal adj.:** ${s.seasonal_adjustment}`,
+        `**Units:** ${escapeMarkdownInline(s.units)} | **Frequency:** ${escapeMarkdownInline(s.frequency)} | **Seasonal adj.:** ${escapeMarkdownInline(s.seasonal_adjustment)}`,
       );
       lines.push(
-        `**Last updated:** ${s.last_updated}${s.popularity !== undefined ? ` | **Popularity:** ${s.popularity}` : ''}`,
+        `**Last updated:** ${escapeMarkdownInline(s.last_updated)}${s.popularity !== undefined ? ` | **Popularity:** ${s.popularity}` : ''}`,
       );
       lines.push('');
     }

@@ -18,12 +18,13 @@ import {
   inferSchemaFromRows,
   type QueryResult,
 } from '@cyanheads/mcp-ts-core/canvas';
+import { databaseError } from '@cyanheads/mcp-ts-core/errors';
 import { idGenerator } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
 
 /** Per-table provenance + TTL metadata persisted in `ctx.state`. */
 export interface DataframeMeta {
-  columnSchema: ColumnSchema[];
+  columnSchema: (Omit<ColumnSchema, 'type'> & { type: string })[];
   createdAt: string;
   expiresAt: string;
   maxRows: number | undefined;
@@ -70,7 +71,6 @@ export interface BridgeQueryOptions {
 }
 
 const META_PREFIX = 'df-meta/';
-const CANVAS_ID_KEY = 'canvas-id';
 const TABLE_NAME_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /**
@@ -87,7 +87,7 @@ export class CanvasBridge {
 
   /**
    * Persist a row set as `df_<id>` on the tenant's shared canvas. Returns
-   * `undefined` on any canvas failure so callers can surface their inline
+   * `undefined` on a canvas failure so callers can surface their inline
    * response without leaking infrastructure errors.
    */
   async registerDataframe(
@@ -102,12 +102,15 @@ export class CanvasBridge {
     }
 
     try {
-      await this.sweepExpired(ctx);
-      const instance = await this.acquireSharedCanvas(ctx);
+      const instance = await this.canvas.acquireShared(ctx, this.sharedCanvasOptions(ctx));
+      await this.sweepExpired(ctx, instance);
       const tableName = this.mintTableName();
       const schema = deriveAllNullableSchema(options.rows);
 
-      const result = await instance.registerTable(tableName, options.rows, { schema });
+      const result = await instance.registerTable(tableName, options.rows, {
+        schema,
+        signal: ctx.signal,
+      });
 
       const now = Date.now();
       const ttlMs = getServerConfig().datasetTtlSeconds * 1000;
@@ -122,7 +125,12 @@ export class CanvasBridge {
         maxRows: options.maxRows,
         columnSchema: schema,
       };
-      await ctx.state.set(`${META_PREFIX}${result.tableName}`, meta);
+      try {
+        await ctx.state.set(`${META_PREFIX}${result.tableName}`, meta);
+      } catch (error) {
+        await this.dropUntrackedTable(ctx, instance, result.tableName);
+        throw error;
+      }
 
       ctx.log.info('Dataframe registered', {
         tableName: result.tableName,
@@ -137,6 +145,7 @@ export class CanvasBridge {
         columnSchema: schema,
       };
     } catch (error) {
+      ctx.signal.throwIfAborted();
       ctx.log.warning('Dataframe registration failed', {
         error: error instanceof Error ? error.message : String(error),
         sourceTool: options.sourceTool,
@@ -147,7 +156,12 @@ export class CanvasBridge {
 
   /** List dataframes with provenance. Sweeps expired tables first. */
   async describe(ctx: Context, tableName?: string): Promise<DataframeMeta[]> {
-    await this.sweepExpired(ctx);
+    const instance = await this.canvas.acquireShared(ctx, {
+      ...this.sharedCanvasOptions(ctx),
+      create: false,
+    });
+    if (!instance) return [];
+    await this.sweepExpired(ctx, instance);
     if (tableName) {
       const meta = await ctx.state.get<DataframeMeta>(`${META_PREFIX}${tableName}`);
       return meta ? [meta] : [];
@@ -168,8 +182,8 @@ export class CanvasBridge {
     options: BridgeQueryOptions = {},
   ): Promise<{ result: QueryResult; meta?: DataframeMeta }> {
     assertNoSystemCatalogs(sql);
-    await this.sweepExpired(ctx);
-    const instance = await this.acquireSharedCanvas(ctx);
+    const instance = await this.canvas.acquireShared(ctx, this.sharedCanvasOptions(ctx));
+    await this.sweepExpired(ctx, instance);
 
     const registerAs = options.registerAs;
     const result = await instance.query(sql, {
@@ -179,12 +193,20 @@ export class CanvasBridge {
       signal: ctx.signal,
     });
 
-    let meta: DataframeMeta | undefined;
-    if (registerAs && result.tableName) {
+    const { tableName } = result;
+    if (!tableName) return { result };
+
+    try {
+      const [table] = await instance.describe({
+        kind: 'table',
+        tableName,
+        signal: ctx.signal,
+      });
+      if (!table) throw databaseError('Registered dataframe is missing from the canvas.');
       const now = Date.now();
       const ttlMs = getServerConfig().datasetTtlSeconds * 1000;
-      meta = {
-        tableName: result.tableName,
+      const meta: DataframeMeta = {
+        tableName,
         sourceTool: options.sourceTool ?? 'fedreserve_dataframe_query',
         queryParams: options.queryParams ?? { sql },
         createdAt: new Date(now).toISOString(),
@@ -192,16 +214,34 @@ export class CanvasBridge {
         rowCount: result.rowCount,
         truncated: false,
         maxRows: undefined,
-        columnSchema: result.columns.map((name) => ({
+        columnSchema: table.columns.map(({ name, engineType, type, nullable }) => ({
           name,
-          type: 'VARCHAR',
-          nullable: true,
+          type: engineType ?? type,
+          ...(nullable !== undefined && { nullable }),
         })),
       };
-      await ctx.state.set(`${META_PREFIX}${result.tableName}`, meta);
+      await ctx.state.set(`${META_PREFIX}${tableName}`, meta);
+      return { result, meta };
+    } catch (error) {
+      await this.dropUntrackedTable(ctx, instance, tableName);
+      throw error;
     }
+  }
 
-    return meta ? { result, meta } : { result };
+  /** Remove a committed table whose provenance could not be recorded. */
+  private async dropUntrackedTable(
+    ctx: Context,
+    instance: CanvasInstance,
+    tableName: string,
+  ): Promise<void> {
+    try {
+      await instance.drop(tableName);
+    } catch (error) {
+      ctx.log.warning('Failed to remove dataframe after metadata registration failed', {
+        tableName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -209,16 +249,21 @@ export class CanvasBridge {
    * entry from `ctx.state`. Returns true when found and removed, false when absent.
    */
   async drop(ctx: Context, tableName: string): Promise<boolean> {
-    await this.sweepExpired(ctx);
+    const instance = await this.canvas.acquireShared(ctx, {
+      ...this.sharedCanvasOptions(ctx),
+      create: false,
+    });
+    if (!instance) return false;
+    await this.sweepExpired(ctx, instance);
     const metaKey = `${META_PREFIX}${tableName}`;
     const hadMeta = (await ctx.state.get(metaKey)) !== null;
     await ctx.state.delete(metaKey);
 
     try {
-      const instance = await this.acquireSharedCanvas(ctx);
       const dropped = await instance.drop(tableName);
       return dropped || hadMeta;
     } catch (error) {
+      ctx.signal.throwIfAborted();
       ctx.log.warning('Canvas drop failed', {
         tableName,
         error: error instanceof Error ? error.message : String(error),
@@ -228,22 +273,20 @@ export class CanvasBridge {
   }
 
   /** Sweep expired tables. Best-effort — failure on one table doesn't stop others. */
-  private async sweepExpired(ctx: Context): Promise<void> {
+  private async sweepExpired(ctx: Context, instance: CanvasInstance): Promise<void> {
     const nowIso = new Date().toISOString();
-    let instance: CanvasInstance | undefined;
     for await (const { key, meta } of this.iterateMeta(ctx)) {
       if (meta.expiresAt > nowIso) continue;
 
-      instance ??= await this.acquireSharedCanvas(ctx).catch(() => undefined);
-      if (instance) {
-        try {
-          await instance.drop(meta.tableName);
-        } catch (error) {
-          ctx.log.warning('TTL sweep drop failed', {
-            tableName: meta.tableName,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+      ctx.signal.throwIfAborted();
+      try {
+        await instance.drop(meta.tableName);
+      } catch (error) {
+        ctx.signal.throwIfAborted();
+        ctx.log.warning('TTL sweep drop failed', {
+          tableName: meta.tableName,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
       await ctx.state.delete(key);
       ctx.log.debug('Expired dataframe swept', {
@@ -268,19 +311,13 @@ export class CanvasBridge {
     } while (cursor);
   }
 
-  /** Acquire (or mint) the tenant's shared canvas, persisting the canvas ID. */
-  private async acquireSharedCanvas(ctx: Context): Promise<CanvasInstance> {
-    const stored = await ctx.state.get<string>(CANVAS_ID_KEY);
-    if (stored) {
-      try {
-        return await this.canvas.acquire(stored, ctx);
-      } catch {
-        await ctx.state.delete(CANVAS_ID_KEY);
-      }
-    }
-    const instance = await this.canvas.acquire(undefined, ctx);
-    await ctx.state.set(CANVAS_ID_KEY, instance.canvasId);
-    return instance;
+  /** Purge the tenant's provenance while shared-canvas replacement is serialized. */
+  private sharedCanvasOptions(ctx: Context) {
+    return {
+      onReplace: async () => {
+        for await (const { key } of this.iterateMeta(ctx)) await ctx.state.delete(key);
+      },
+    };
   }
 
   private mintTableName(): string {
@@ -294,7 +331,8 @@ let _bridge: CanvasBridge | undefined;
 
 /**
  * Wire the canvas bridge during `setup()`. `canvas` is `undefined` when
- * `CANVAS_PROVIDER_TYPE` is `none` (default) or the server runs on Workers.
+ * `CANVAS_PROVIDER_TYPE` is `none` (`src/index.ts` defaults it to `duckdb`) or
+ * the server runs on Workers.
  * Tools that materialize dataframes call `getCanvasBridge()` and skip
  * materialization when the bridge is absent.
  */

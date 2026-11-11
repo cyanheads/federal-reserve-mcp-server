@@ -7,12 +7,13 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
 export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_describe', {
   title: 'Describe FRED Dataframes',
   description:
-    'List canvas dataframes materialized by fedreserve_get_observations, with provenance, TTL, column schema, and row count. Optionally filter to a single dataframe by name. Requires CANVAS_PROVIDER_TYPE=duckdb.',
+    'List canvas dataframes materialized by fedreserve_get_observations, with provenance, TTL, column schema, and row count. Optionally filter to a single dataframe by name. Unavailable when the server sets CANVAS_PROVIDER_TYPE=none.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   errors: [
@@ -47,7 +48,7 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
             created_at: z.string().describe('ISO 8601 creation timestamp.'),
             expires_at: z
               .string()
-              .describe('ISO 8601 expiry timestamp. Sliding TTL refreshed on every dataframe op.'),
+              .describe('ISO 8601 expiry timestamp set when the dataframe was created.'),
             row_count: z.number().describe('Rows materialized in the dataframe.'),
             truncated: z
               .boolean()
@@ -108,18 +109,21 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
       const truncated = df.truncated
         ? ` (truncated${df.max_rows ? ` at ${df.max_rows}` : ''})`
         : '';
-      lines.push(`### ${df.name}`);
-      lines.push(`- Source: ${df.source_tool}`);
+      const title = `${escapeMarkdownInline(df.name)}`;
+      lines.push(title.includes('\n') ? title : `### ${title}`);
+      lines.push(`- Source: ${escapeMarkdownInline(df.source_tool)}`);
       lines.push(`- Rows: ${df.row_count}${truncated}`);
-      lines.push(`- Created: ${df.created_at} — Expires: ${df.expires_at}`);
+      lines.push(
+        `- Created: ${escapeMarkdownInline(df.created_at)} — Expires: ${escapeMarkdownInline(df.expires_at)}`,
+      );
       const params = Object.entries(df.query_params)
         .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
         .join(', ');
-      if (params) lines.push(`- Params: ${params}`);
+      if (params) lines.push(`- Params: ${escapeMarkdownInline(params)}`);
       const cols = df.column_schema
         .map((c) => `${c.name}:${c.type} (nullable=${c.nullable})`)
         .join(', ');
-      lines.push(`- Columns: ${cols}`);
+      lines.push(`- Columns: ${escapeMarkdownInline(cols)}`);
       lines.push('');
     }
     return [{ type: 'text', text: lines.join('\n').trimEnd() }];

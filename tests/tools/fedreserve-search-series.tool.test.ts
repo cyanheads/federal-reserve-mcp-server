@@ -63,23 +63,135 @@ describe('fedreserveSearchSeriesTool', () => {
     });
   });
 
-  it.each(['Monthly', 'Annual', '  Monthly  '])(
-    'preserves the complete filter value %s verbatim',
-    async (value) => {
+  it('uses a 20-result default page', async () => {
+    mockSearchSeries.mockResolvedValueOnce({ ...SEARCH_RESPONSE, limit: 20 });
+    const result = await runToolContract(fedreserveSearchSeriesTool, { query: 'unemployment' });
+    expect(mockSearchSeries).toHaveBeenCalledWith(
+      { query: 'unemployment', limit: 20 },
+      expect.anything(),
+    );
+    expect(result.structuredContent).toMatchObject({ limit: 20 });
+    expect(JSON.stringify(result.content)).toContain('limit 20');
+  });
+
+  it('allows the last reachable page at maximum limit and discloses the search window', async () => {
+    mockSearchSeries.mockResolvedValueOnce({
+      ...SEARCH_RESPONSE,
+      count: 5001,
+      offset: 4000,
+      seriess: Array.from({ length: 1000 }, (_, index) => ({
+        id: `SERIES${4000 + index}`,
+        title: `Series ${4000 + index}`,
+      })),
+    });
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      offset: 4000,
+      limit: 1000,
+    });
+    expect(mockSearchSeries).toHaveBeenCalledWith(
+      { query: 'unemployment', offset: 4000, limit: 1000 },
+      expect.anything(),
+    );
+    expect(result.structuredContent).toMatchObject({
+      count: 5001,
+      notice: expect.stringContaining('4000'),
+    });
+    const page = fedreserveSearchSeriesTool.output.parse(result.structuredContent);
+    expect(page.series).toHaveLength(1000);
+    expect(JSON.stringify(result.content)).toContain('4000');
+    expect(JSON.stringify(result.content)).toContain('SERIES4999');
+    expect(JSON.stringify(result.content)).toContain('narrow');
+  });
+
+  it.each([4001, 4999])('rejects unreachable offset %i before fetching', async (offset) => {
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      offset,
+      limit: 1,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: JsonRpcErrorCode.ValidationError,
+        data: {
+          reason: 'search_offset_exceeded',
+          recovery: { hint: expect.stringContaining('4000') },
+        },
+      },
+    });
+    expect(JSON.stringify(result.content)).toContain('Recovery:');
+    expect(mockSearchSeries).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['frequency', 'quarterly', 'Quarterly'],
+    ['frequency', 'QUARTERLY', 'Quarterly'],
+    ['frequency', '  Quarterly  ', 'Quarterly'],
+    ['frequency', '  Monthly  ', 'Monthly'],
+    ['frequency', 'Quarterly, End of Period', 'Quarterly'],
+    ['frequency', 'Weekly, Ending Saturday', 'Weekly'],
+    ['frequency', ' future frequency ', 'future frequency'],
+    ['seasonal_adjustment', 'not seasonally adjusted', 'Not Seasonally Adjusted'],
+    ['units', ' Percent ', 'Percent'],
+    ['units', 'percent', 'percent'],
+  ] as const)(
+    'normalizes %s %j to %j and echoes the sent value',
+    async (filter_variable, filter_value, expected) => {
       const result = await runToolContract(fedreserveSearchSeriesTool, {
         query: 'unemployment',
-        filter_variable: 'frequency',
-        filter_value: value,
+        filter_variable,
+        filter_value,
+        limit: 1,
       });
-      expect(result.isError).toBeFalsy();
       expect(mockSearchSeries).toHaveBeenCalledWith(
-        { query: 'unemployment', filter_variable: 'frequency', filter_value: value },
+        { query: 'unemployment', filter_variable, filter_value: expected, limit: 1 },
         expect.anything(),
       );
-      expect(result.structuredContent).toMatchObject({ active_filters: { frequency: value } });
-      expect(JSON.stringify(result.content)).toContain(`frequency=${value}`);
+      expect(result.structuredContent).toMatchObject({
+        active_filters: { [filter_variable]: expected },
+      });
+      expect(JSON.stringify(result.content)).toContain(`${filter_variable}=${expected}`);
     },
   );
+
+  it.each([
+    { count: 0, offset: 0, guidance: 'exact' },
+    { count: 77, offset: 100, guidance: 'lower offset' },
+    { count: 5001, offset: 4000, guidance: 'lower offset' },
+  ])(
+    'provides the relevant empty page notice on both surfaces: %j',
+    async ({ count, offset, guidance }) => {
+      mockSearchSeries.mockResolvedValueOnce({ count, offset, limit: 1, seriess: [] });
+      const result = await runToolContract(fedreserveSearchSeriesTool, {
+        query: 'unemployment',
+        filter_variable: 'units',
+        filter_value: 'Percent',
+        limit: 1,
+        offset,
+      });
+      expect(result.structuredContent).toMatchObject({ notice: expect.stringContaining(guidance) });
+      expect(JSON.stringify(result.content)).toContain(guidance);
+      if (count > 5000) {
+        expect(result.structuredContent).toMatchObject({ notice: expect.stringContaining('5000') });
+      }
+    },
+  );
+
+  it.each(['Monthly', 'Annual'])('preserves the canonical filter value %s', async (value) => {
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      filter_variable: 'frequency',
+      filter_value: value,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(mockSearchSeries).toHaveBeenCalledWith(
+      { query: 'unemployment', filter_variable: 'frequency', filter_value: value, limit: 20 },
+      expect.anything(),
+    );
+    expect(result.structuredContent).toMatchObject({ active_filters: { frequency: value } });
+    expect(JSON.stringify(result.content)).toContain(`frequency=${value}`);
+  });
 
   it.each([
     { count: 77, offset: 1, returned: true },
@@ -100,6 +212,12 @@ describe('fedreserveSearchSeriesTool', () => {
     });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({ count, totalCount: count, offset });
+    if (count === 0) {
+      expect(result.structuredContent).toMatchObject({
+        notice: expect.stringContaining('Try broadening'),
+      });
+      expect(JSON.stringify(result.content)).toContain('Try broadening');
+    }
     expect(result.content.at(-1)).toMatchObject({
       text: expect.stringContaining(`${count} total`),
     });

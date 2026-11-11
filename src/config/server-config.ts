@@ -20,11 +20,15 @@ const ServerConfigSchema = z.object({
     .int()
     .positive()
     .default(86400)
-    .describe('Per-table sliding TTL for canvas-registered dataframes (seconds).'),
+    .describe('Lifetime of a registered dataframe from creation, in seconds.'),
   dataframeDrop: z
     .stringbool()
     .default(false)
     .describe('Set to true to enable fedreserve_dataframe_drop; otherwise registered as disabled.'),
+  clampLimits: z
+    .stringbool()
+    .default(true)
+    .describe('Accept up to 100 series IDs and defer IDs beyond each tool’s processing limit.'),
 });
 
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
@@ -37,6 +41,7 @@ export function getServerConfig(): ServerConfig {
     baseUrl: 'FRED_BASE_URL',
     datasetTtlSeconds: 'FRED_DATASET_TTL_SECONDS',
     dataframeDrop: 'FRED_DATAFRAME_DROP_ENABLED',
+    clampLimits: 'FRED_CLAMP_LIMITS',
   });
   return _config;
 }

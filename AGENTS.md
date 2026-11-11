@@ -2,9 +2,9 @@
 
 **Server:** @cyanheads/federal-reserve-mcp-server
 **Version:** 0.3.0
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.15`
-**Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.3.1
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.22`
+**Engines:** Bun ≥1.4.4, Node ≥24.0.0
+**MCP SDK:** `@modelcontextprotocol/server` ^2.4.0
 **Zod:** ^4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -39,8 +39,8 @@ This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Fe
 | Tool | Description |
 |:-----|:------------|
 | `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags |
-| `fedreserve_get_series` | Fetch metadata for one or more series (up to 50 IDs, parallel upstream requests) |
-| `fedreserve_get_observations` | Fetch date+value observations with date-range, unit transforms, and DataCanvas spillover |
+| `fedreserve_get_series` | Fetch metadata for up to 50 processed IDs, with optional release mapping and explicit batch deferral |
+| `fedreserve_get_observations` | Fetch paged date+value observations, transform/native-unit labels, and DataCanvas spillover |
 | `fedreserve_browse_categories` | Navigate the FRED category tree |
 | `fedreserve_get_release` | Inspect a release by ID or name search |
 | `fedreserve_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
@@ -60,7 +60,7 @@ This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Fe
 
 ## Core Rules
 
-- **Logic throws, framework catches.** Tool/resource handlers are pure — throw on failure, no `try/catch`. Plain `Error` is fine; the framework catches, classifies, and formats. Use error factories (`notFound()`, `validationError()`, etc.) when the error code matters.
+- **Logic throws, framework catches.** Catch only to recover from an optional upstream availability failure or to translate an exact typed domain error. Preserve caller cancellation and input errors. The framework renders failures; use error factories when the code matters.
 - **Use `ctx.log`** for request-scoped logging. No `console` calls.
 - **Use `ctx.state`** for tenant-scoped storage. Never access persistence directly.
 - **Need input the caller didn't supply?** `return ctx.requestInput(...)` and read `ctx.inputs` when the handler is re-entered. Never `await` for user input mid-handler. (`ctx.elicit` was removed in 0.12.0 — do not reference it.)
@@ -90,7 +90,7 @@ export const fedreserveSearchSeriesToolDef = tool('fedreserve_search_series', {
       .describe('Post-search filter dimension'),
     filter_value: z.string().optional().describe('Value for filter_variable'),
     tag_names: z.string().optional().describe('Semicolon-delimited list of tag names to filter by'),
-    limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 1000)'),
+    limit: z.number().int().min(1).max(1000).default(20).describe('Page size (default 20)'),
     offset: z.number().int().min(0).optional().describe('Pagination offset'),
   }),
 
@@ -107,8 +107,8 @@ export const fedreserveSearchSeriesToolDef = tool('fedreserve_search_series', {
 
   async handler(input, ctx) {
     ctx.log.info('Executing fedreserve_search_series', { query: input.query });
-    const result = await getFredApiService().searchSeries(input);
-    return result;
+    const result = await getFredApiService().searchSeries(input, ctx);
+    return { count: result.count, series: result.seriess };
   },
 
   format: (result) => [{
@@ -131,9 +131,11 @@ const ServerConfigSchema = z.object({
   apiKey: z.string().describe('FRED API key from stlouisfed.org.'),
   baseUrl: z.string().url().default('https://api.stlouisfed.org/fred').describe('FRED API base URL.'),
   datasetTtlSeconds: z.coerce.number().int().positive().default(86400)
-    .describe('Sliding TTL for canvas-registered dataframes (seconds).'),
+    .describe('Lifetime of a registered dataframe from creation, in seconds.'),
   dataframeDrop: z.stringbool().default(false)
     .describe('Set to true to enable fedreserve_dataframe_drop; otherwise registered as disabled.'),
+  clampLimits: z.stringbool().default(true)
+    .describe('Accept up to 100 IDs and defer IDs beyond each tool processing limit.'),
 });
 
 let _config: z.infer<typeof ServerConfigSchema> | undefined;
@@ -143,6 +145,7 @@ export function getServerConfig(): z.infer<typeof ServerConfigSchema> {
     baseUrl: 'FRED_BASE_URL',
     datasetTtlSeconds: 'FRED_DATASET_TTL_SECONDS',
     dataframeDrop: 'FRED_DATAFRAME_DROP_ENABLED',
+    clampLimits: 'FRED_CLAMP_LIMITS',
   });
   return _config;
 }
@@ -165,7 +168,7 @@ await createApp({
 
 `sessionMode` declares the HTTP session posture in `src/` instead of leaving it to a deployment's `MCP_SESSION_MODE`, which still wins whenever it carries a meaningful value. This server is `stateless`: no tool calls `ctx.requestInput`, so nothing needs a session store, and `ctx.state` (tenant-scoped storage, where canvas provenance and TTL live) is unaffected by session mode. Add `require: 'stateful'` only if a tool later gates on `ctx.requestInput`.
 
-`teardown(core)` is the `setup()` counterpart — release a watcher, socket, or non-`unref()`'d timer there. Neither `FredApiService` nor `CanvasBridge` allocates one (`fetchWithTimeout` is per-request; the canvas registry is a core service the framework disposes), so this server declares no `teardown`. Add one the moment a service allocates something that outlives a request.
+`teardown(core)` is the `setup()` counterpart — release any resource that outlives a request there. FRED request timers are cleared after their exchange, and the framework disposes the canvas registry, so this server needs no additional teardown.
 
 ---
 
@@ -201,7 +204,8 @@ errors: [
     recovery: 'Verify the series ID with fedreserve_search_series and try again.' },
 ],
 async handler(input, ctx) {
-  const series = await getFredApiService().getSeries(input.series_id);
+  const response = await getFredApiService().getSeriesById(input.series_id, ctx);
+  const series = response.seriess[0];
   if (!series) {
     throw ctx.fail('series_not_found', `Series ${input.series_id} not found`);
   }
@@ -214,7 +218,7 @@ async handler(input, ctx) {
 ```ts
 import { notFound, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 throw notFound('Series not found', { seriesId });
-throw serviceUnavailable('FRED API unavailable', { url }, { cause: err });
+throw serviceUnavailable('FRED API unavailable'); // Never attach a credential-bearing URL or cause.
 ```
 
 **Declare contracts inline on each tool.** The contract is part of the tool's public surface — one file should give the full picture. Don't extract a shared `errors[]` constant; per-tool repetition is the intended cost of locality.
@@ -263,7 +267,7 @@ src/
 
 ## Skills
 
-Skills are modular instructions in `framework-skills/` at the project root. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. The directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand these development skills to every agent that installs it. Keep `skills/` free for skills meant for those agents.
+Read development skills in `framework-skills/` when a task matches. `bun run list-skills` prints the registry. The optional root `skills/` tree carries instructions for agents that call the server. It ships with the plugins, npm package, Docker image, and MCPB bundle. `createApp({ skills: 'skills' })` also serves that tree over MCP, and `lint:packaging` validates it.
 
 **Agent skill directory:** Copy skills into the directory your agent discovers (Claude Code: `.claude/skills/`, others: equivalent). Skills then load as context without referencing `framework-skills/` paths. After framework updates, run the `maintenance` skill — Phase B re-syncs the agent directory.
 
@@ -277,6 +281,7 @@ Available skills:
 | `add-app-tool` | Scaffold an MCP App tool + paired UI resource |
 | `add-resource` | Scaffold a new resource definition |
 | `add-prompt` | Scaffold a new prompt definition |
+| `add-skill` | Author and verify a skill for agents that use the server |
 | `add-service` | Scaffold a new service integration |
 | `add-test` | Scaffold test file for a tool, resource, or service |
 | `field-test` | Exercise tools/resources/prompts with real inputs, verify behavior, report issues |
@@ -332,7 +337,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run audit:fix` | `bun audit fix` — upgrade vulnerable packages to the lowest safe version within existing ranges (`--dry-run` previews, `--latest` rewrites ranges). First response when `devcheck` flags a transitive advisory; then `bun update <name>`, then `bun dedupe` |
 | `bun run audit:refresh` | Delete `bun.lock` and reinstall. Last resort after `audit:fix`, `bun update <name>`, and `bun dedupe` — re-resolves every ranged dep (the framework pin included) and rewrites the lockfile as `lockfileVersion: 2` |
 | `bun run bundle` | Build, pack, and clean a `.mcpb` for one-click Claude Desktop install |
-| `bun run lint:packaging` | Verify env var alignment between `manifest.json` and `server.json`, and the plugin manifests' display/install/version fields |
+| `bun run lint:packaging` | Verify env var alignment, plugin manifests, MCPB contents and ignore rules, and the published skill tree |
 
 **CI is one file.** `.github/workflows/codeql.yml` is the only GitHub Actions workflow: CodeQL is GitHub-owned end to end, and the file runs only while the repo's CodeQL *default setup* is turned off. Verification — `devcheck`, tests, the release gates — runs locally; don't add a workflow that re-runs it.
 
@@ -340,11 +345,13 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. The pack step is followed by `scripts/clean-mcpb.ts`, which prunes dev dependencies and strips two classes of `node_modules/**` content that root-anchored `.mcpbignore` patterns cannot reach: dependency-shipped agent docs (`framework-skills/`, `skills/`, `.claude/`, `.agents/`, `SKILL.md`) and platform-specific native bindings, which would otherwise lock the bundle to the platform it was packed on. A server using DataCanvas therefore ships a portable bundle without the DuckDB native — `@duckdb/node-api` is an optional peer loaded lazily, so canvas tools report an actionable install hint and every other tool works normally. MCPB is stdio-only — HTTP and Cloudflare Workers deployments are unaffected. Consumers who don't need it can delete `manifest.json` and `.mcpbignore`; `lint:packaging` skips cleanly.
+`bun run bundle` creates the Claude Desktop MCPB extension. `mcpb pack` reads root-anchored exclusions from `.mcpbignore`; root `skills/` ships. `scripts/clean-mcpb.ts` removes development dependencies, dependency-root agent docs, build-only files, node-gyp intermediates, and platform-specific DuckDB bindings. Nested runtime modules such as the MCP SDK's `dist/ext/skills/` stay in the bundle.
+
+`src/index.ts` defaults `CANVAS_PROVIDER_TYPE` to `duckdb` after loading `.env`. The MCPB manifest pins `CANVAS_PROVIDER_TYPE=none` because the bundle omits native DuckDB bindings. Its dataframe tools report `canvas_unavailable` and `fedreserve_get_observations` returns inline previews. Keep the bundle's provider fixed because enabling DuckDB there fails on the first staging call.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 
-**The plugin manifests are a third and fourth surface:** `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` + `.codex-plugin/mcp.json`. Display fields take the unscoped repo name `federal-reserve-mcp-server`; the `npx` install arg takes the scoped npm name `@cyanheads/federal-reserve-mcp-server`; each `version` must equal `package.json`'s. `FRED_API_KEY` reaches the server through `userConfig` + `"${user_config.fred_api_key}"` in the Claude manifest and through `env_vars` in the Codex one — never as `"FRED_API_KEY": ""`, which replaces the user's exported key with a value read as unset.
+The Agent Plugins root pair (`plugin.json` and `mcp.json`) declares the server with fixed environment values. The Claude overlay forwards `FRED_API_KEY` through `userConfig` and `"${user_config.fred_api_key}"`. The Codex overlay forwards it through `env_vars` and must keep its `mcpServers` pointer to `./.codex-plugin/mcp.json`. Display names use `federal-reserve-mcp-server`, install arguments use `@cyanheads/federal-reserve-mcp-server`, and all manifest versions match `package.json`.
 
 ---
 
@@ -398,7 +405,7 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 - [ ] Optional nested objects: handler guards for empty inner values from form-based clients (`if (input.obj?.field && ...)`, not just `if (input.obj)`). When regex/length constraints matter, use `z.union([z.literal(''), z.string().regex(...).describe(...)])` — literal variants are exempt from `describe-on-fields`.
 - [ ] JSDoc `@fileoverview` + `@module` on every file
 - [ ] `ctx.log` for logging, `ctx.state` for storage
-- [ ] Handlers throw on failure — error factories or plain `Error`, no try/catch
+- [ ] Handlers throw on failure; catches recover only from optional upstream failures, preserving caller cancellation and input errors
 - [ ] `format()` renders all data the LLM needs — different clients forward different surfaces (Claude Code → `structuredContent`, Claude Desktop → `content[]`); both must carry the same data
 - [ ] FRED wrapping: raw/domain/output schemas reviewed against real upstream sparsity/nullability before finalizing required vs optional fields
 - [ ] FRED wrapping: normalization and `format()` preserve uncertainty; do not fabricate facts from missing upstream data
@@ -406,7 +413,7 @@ import { getFredApiService } from '@/services/fred/fred-service.js';
 - [ ] FRED wrapping: observation values kept as strings (FRED returns them as strings to preserve trailing zeros — don't coerce to float)
 - [ ] Multi-series tools use `Promise.allSettled` with partial success reporting
 - [ ] `fedreserve_get_observations` DataCanvas spillover: multi-series or >500 rows spill to canvas; single short-range returns inline; degrades gracefully when canvas unavailable
-- [ ] Registered in `createApp()` arrays (directly or via barrel exports)
+- [ ] Imported directly in `src/index.ts`; configuration-dependent factories run in `setup()` before registration
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
 - [ ] `.codex-plugin/plugin.json` populated — `name`, `version`, `description`, `repository`, `license` from `package.json`; `interface.displayName` = the unscoped repo name (never the npm scope — `lint:packaging` enforces this); `interface.shortDescription` from `package.json` description
 - [ ] `.codex-plugin/mcp.json` updated — server name key is the unscoped repo name; every user-supplied variable is listed in `env_vars` so Codex forwards it from the user's environment. Never write `"KEY": ""` into `env`

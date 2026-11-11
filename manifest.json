@@ -20,7 +20,9 @@
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
         "NODE_ENV": "production",
-        "FRED_API_KEY": "${user_config.fred_api_key}"
+        "CANVAS_PROVIDER_TYPE": "none",
+        "FRED_API_KEY": "${user_config.fred_api_key}",
+        "FRED_CLAMP_LIMITS": "${user_config.fred_clamp_limits}"
       }
     }
   },
@@ -35,6 +37,13 @@
       "description": "API key from stlouisfed.org/docs/api/api_key.html. Required for all FRED API calls.",
       "required": true,
       "sensitive": true
+    },
+    "fred_clamp_limits": {
+      "type": "boolean",
+      "title": "Defer excess series IDs",
+      "description": "Accept up to 100 series IDs and return unprocessed IDs for the next call. Disable to reject batches above 10 observation IDs or 50 metadata IDs.",
+      "default": true,
+      "required": false
     }
   }
 }

@@ -8,12 +8,13 @@
 
 import { disabledTool, tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
 export const fedreserveDataframeDropToolDef = tool('fedreserve_dataframe_drop', {
   title: 'Drop FRED Dataframe',
   description:
-    'Drop a canvas dataframe by name. Idempotent — returns dropped: false when nothing matched. TTL handles cleanup in normal operation; this tool is for explicit early reclamation when an analysis session is complete. Requires CANVAS_PROVIDER_TYPE=duckdb and FRED_DATAFRAME_DROP_ENABLED=true.',
+    'Drop a canvas dataframe by name. Idempotent — returns dropped: false when nothing matched. TTL handles cleanup in normal operation; this tool is for explicit early reclamation when an analysis session is complete. Requires FRED_DATAFRAME_DROP_ENABLED=true; unavailable when the server sets CANVAS_PROVIDER_TYPE=none.',
   annotations: {
     readOnlyHint: false,
     idempotentHint: true,
@@ -54,9 +55,13 @@ export const fedreserveDataframeDropToolDef = tool('fedreserve_dataframe_drop', 
   },
 
   format: (result) => {
+    if (result.name.includes('\r') || result.name.includes('\0')) {
+      return [{ type: 'text', text: markdown().codeBlock(JSON.stringify(result), 'json').build() }];
+    }
+    const name = escapeMarkdownInline(result.name);
     const msg = result.dropped
-      ? `Dropped dataframe \`${result.name}\`.`
-      : `Dataframe \`${result.name}\` was not found — nothing to drop. Dropped: ${result.dropped}.`;
+      ? `Dropped dataframe ${name}.`
+      : `Dataframe ${name} was not found — nothing to drop. Dropped: ${result.dropped}.`;
     return [{ type: 'text', text: msg }];
   },
 });

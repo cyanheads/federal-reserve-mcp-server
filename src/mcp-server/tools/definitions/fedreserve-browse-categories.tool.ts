@@ -1,20 +1,23 @@
 /**
  * @fileoverview Navigate the FRED category tree. Returns child categories and
- * a sample of series when viewing a leaf. Omit category_id to start at the
+ * a paginated series list when viewing a leaf. Omit category_id to start at the
  * root (ID 0).
  * @module mcp-server/tools/definitions/fedreserve-browse-categories
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { FredDomainError } from '@/services/fred/fred-error.js';
 import { getFredApiService } from '@/services/fred/fred-service.js';
-import type { FredCategoryResponse } from '@/services/fred/types.js';
+
+const DEFAULT_SERIES_LIMIT = 10;
 
 export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories', {
   title: 'Browse FRED Categories',
   description:
-    'Navigate the FRED category tree. Returns the current category, its child categories, and — when viewing a leaf node with no children — a sample of series within it. Omit category_id to start at the root (ID 0).',
-  annotations: { readOnlyHint: true, openWorldHint: false },
+    'Navigate the FRED category tree. Returns the current category and its child categories. A leaf category returns a paginated list of its series in descending popularity order. Omit category_id to start at the root (ID 0).',
+  annotations: { readOnlyHint: true, openWorldHint: true },
 
   errors: [
     {
@@ -32,6 +35,19 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
       .min(0)
       .optional()
       .describe('Category ID to view. Omit or use 0 to start at the root.'),
+    series_limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .describe('Maximum series on a leaf category page (default 10).'),
+    series_offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Offset for the series page of a leaf category (default 0).'),
   }),
 
   output: z.object({
@@ -65,101 +81,111 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
           .describe('One series in this leaf category.'),
       )
       .optional()
-      .describe(
-        'Sample series when the category has no children (leaf node). Use fedreserve_search_series or fedreserve_get_observations for deeper access.',
-      ),
+      .describe('Page of series ordered by descending popularity. Returned for leaf categories.'),
+    series_count: z
+      .number()
+      .optional()
+      .describe('Total series in a leaf category before pagination.'),
   }),
 
-  async handler(input, ctx) {
+  enrichment: {
+    totalCount: z.number().optional().describe('Total series count when browsing a leaf category.'),
+  },
+
+  handler(input, ctx) {
     const category_id = input.category_id ?? 0;
     ctx.log.info('fedreserve_browse_categories', { category_id });
 
-    let categoryResp: FredCategoryResponse;
-    let childrenResp: FredCategoryResponse;
-    try {
-      [categoryResp, childrenResp] = await Promise.all([
-        getFredApiService().getCategory(category_id, ctx),
-        getFredApiService().getCategoryChildren(category_id, ctx),
-      ]);
-    } catch (err) {
-      const fredBody = String(
-        (err != null && typeof err === 'object' && 'data' in err
-          ? (err as { data?: { body?: unknown } }).data?.body
-          : undefined) ?? '',
-      ).toLowerCase();
-      if (
-        fredBody.includes('does not exist') ||
-        fredBody.includes('bad request') ||
-        fredBody.includes('not found')
-      ) {
-        throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`);
-      }
-      throw err;
-    }
+    // The hierarchy and series page share one clock; only the service retries.
+    return withRetry(
+      async ({ signal }) => {
+        const fred = getFredApiService();
+        const fredContext = { ...ctx, signal };
+        try {
+          const [categoryResp, childrenResp] = await Promise.all([
+            fred.getCategory(category_id, fredContext),
+            fred.getCategoryChildren(category_id, fredContext),
+          ]);
+          const cat = categoryResp.categories?.[0];
+          if (!cat) {
+            throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`);
+          }
+          const result = {
+            category: {
+              id: cat.id,
+              name: cat.name,
+              ...(cat.parent_id !== undefined && { parent_id: cat.parent_id }),
+              ...(cat.notes?.trim() && { notes: cat.notes.trim() }),
+            },
+            children: (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+          };
+          if (result.children.length > 0) return result;
 
-    const cat = categoryResp.categories?.[0];
-    if (!cat) {
-      throw ctx.fail('category_not_found', `Category ${category_id} not found on FRED.`);
-    }
-
-    const children = (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name }));
-
-    let sample_series:
-      | { id: string; title: string; units: string; frequency: string }[]
-      | undefined;
-    if (children.length === 0) {
-      // Leaf node — fetch a sample of its series
-      const seriesResp = await getFredApiService().getCategorySeries(
-        { category_id, limit: 10 },
-        ctx,
-      );
-      const seriess = seriesResp.seriess ?? [];
-      if (seriess.length > 0) {
-        sample_series = seriess.map((s) => ({
-          id: s.id,
-          title: s.title ?? '',
-          units: s.units ?? '',
-          frequency: s.frequency ?? '',
-        }));
-      }
-    }
-
-    return {
-      category: {
-        id: cat.id,
-        name: cat.name,
-        ...(cat.parent_id !== undefined && { parent_id: cat.parent_id }),
-        ...(cat.notes?.trim() && { notes: cat.notes.trim() }),
+          const seriesResp = await fred.getCategorySeries(
+            {
+              category_id,
+              limit: input.series_limit ?? DEFAULT_SERIES_LIMIT,
+              offset: input.series_offset ?? 0,
+            },
+            fredContext,
+          );
+          signal.throwIfAborted();
+          ctx.enrich.total(seriesResp.count);
+          return {
+            ...result,
+            series_count: seriesResp.count,
+            sample_series: (seriesResp.seriess ?? []).map((s) => ({
+              id: s.id,
+              title: s.title ?? '',
+              units: s.units ?? '',
+              frequency: s.frequency ?? '',
+            })),
+          };
+        } catch (err) {
+          signal.throwIfAborted();
+          if (err instanceof FredDomainError && err.reason === 'category_not_found') {
+            throw ctx.fail('category_not_found', err.message, undefined, { cause: err });
+          }
+          throw err;
+        }
       },
-      children,
-      ...(sample_series !== undefined && { sample_series }),
-    };
+      {
+        operation: 'FRED category lookup',
+        signal: ctx.signal,
+        deadlineMs: 50_000,
+        maxRetries: 0,
+        isTransient: () => false,
+      },
+    );
   },
 
   format: (result) => {
     const lines: string[] = [];
-    lines.push(`## ${result.category.name} (ID: ${result.category.id})`);
+    const title = `${escapeMarkdownInline(result.category.name)} (ID: ${result.category.id})`;
+    lines.push(title.includes('\n') ? title : `## ${title}`);
     if (result.category.parent_id !== undefined) {
       lines.push(`Parent ID: ${result.category.parent_id}`);
     }
-    if (result.category.notes) lines.push(`> ${result.category.notes}`);
+    if (result.category.notes) lines.push(`> ${escapeMarkdownInline(result.category.notes)}`);
     lines.push('');
 
     if (result.children.length > 0) {
       lines.push(`**${result.children.length} subcategories:**`);
       for (const c of result.children) {
-        lines.push(`- [${c.id}] ${c.name}`);
+        lines.push(`- [${c.id}] ${escapeMarkdownInline(c.name)}`);
       }
     } else {
       lines.push('_Leaf category — no subcategories._');
     }
 
-    if (result.sample_series && result.sample_series.length > 0) {
-      lines.push('');
-      lines.push(`**Sample series (${result.sample_series.length}):**`);
-      for (const s of result.sample_series) {
-        lines.push(`- **${s.id}**: ${s.title} (${s.units}, ${s.frequency})`);
-      }
+    const series = result.sample_series ?? [];
+    if (result.series_count !== undefined) {
+      lines.push('', `**Series (${series.length} of ${result.series_count}):**`);
+    }
+    for (const s of series) {
+      lines.push(
+        `- **${escapeMarkdownInline(s.id)}**: ${escapeMarkdownInline(s.title)} (${escapeMarkdownInline(s.units)}, ${escapeMarkdownInline(s.frequency)})`,
+      );
     }
 
     return [{ type: 'text', text: lines.join('\n').trimEnd() }];

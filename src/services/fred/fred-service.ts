@@ -8,8 +8,10 @@
  */
 
 import type { Context } from '@cyanheads/mcp-ts-core';
-import { fetchWithTimeout, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { serializationError, serviceUnavailable, timeout } from '@cyanheads/mcp-ts-core/errors';
+import { withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
+import { fredHttpError } from './fred-error.js';
 import type {
   FredCategoryResponse,
   FredCategorySeriesResponse,
@@ -40,6 +42,7 @@ export interface GetObservationsParams {
   observation_start?: string;
   offset?: number;
   series_id: string;
+  sort_order?: 'asc' | 'desc';
   units?: string;
 }
 
@@ -56,10 +59,13 @@ export interface GetReleaseSeriesParams {
 export interface GetCategorySeriesParams {
   category_id: number;
   limit?: number;
+  offset?: number;
 }
 
 /** Whole-exchange bound for a FRED upstream call (headers + body). */
 const FRED_TIMEOUT_MS = 15_000;
+const FRED_RETRY_DEADLINE_MS = 45_000;
+const FRED_OPTIONAL_TIMEOUT_MS = 2_000;
 
 export class FredApiService {
   private readonly baseUrl: string;
@@ -85,14 +91,20 @@ export class FredApiService {
     return this.get<FredSearchResponse>(`/series/search`, query, ctx);
   }
 
-  /** Fetch metadata for a single series by ID. */
-  getSeriesById(series_id: string, ctx: Context): Promise<FredSeriesResponse> {
+  /** Fetch series metadata. Optional enrichment gets one short attempt. */
+  getSeriesById(series_id: string, ctx: Context, policy?: 'optional'): Promise<FredSeriesResponse> {
     const query = new URLSearchParams({
       api_key: this.apiKey,
       file_type: 'json',
       series_id,
     });
-    return this.get<FredSeriesResponse>(`/series`, query, ctx);
+    return this.get<FredSeriesResponse>(`/series`, query, ctx, policy);
+  }
+
+  /** Fetch the release for a series in a single bounded attempt. */
+  getSeriesRelease(series_id: string, ctx: Context): Promise<FredReleaseResponse> {
+    const query = new URLSearchParams({ api_key: this.apiKey, file_type: 'json', series_id });
+    return this.get<FredReleaseResponse>('/series/release', query, ctx, 'optional');
   }
 
   /** Fetch observations for a single series. */
@@ -107,6 +119,7 @@ export class FredApiService {
     if (params.units) query.set('units', params.units);
     if (params.frequency) query.set('frequency', params.frequency);
     if (params.aggregation_method) query.set('aggregation_method', params.aggregation_method);
+    if (params.sort_order) query.set('sort_order', params.sort_order);
     if (params.limit !== undefined) query.set('limit', String(params.limit));
     if (params.offset !== undefined) query.set('offset', String(params.offset));
 
@@ -143,7 +156,10 @@ export class FredApiService {
       file_type: 'json',
       category_id: String(params.category_id),
       limit: String(params.limit ?? 10),
+      order_by: 'popularity',
+      sort_order: 'desc',
     });
+    if (params.offset !== undefined) query.set('offset', String(params.offset));
     return this.get<FredCategorySeriesResponse>(`/category/series`, query, ctx);
   }
 
@@ -176,6 +192,8 @@ export class FredApiService {
       api_key: this.apiKey,
       file_type: 'json',
       release_id: String(params.release_id),
+      order_by: 'popularity',
+      sort_order: 'desc',
     });
     if (params.limit !== undefined) query.set('limit', String(params.limit));
     if (params.offset !== undefined) query.set('offset', String(params.offset));
@@ -193,39 +211,70 @@ export class FredApiService {
       sort_order: 'asc',
       limit: '5',
     });
-    return this.get<FredReleaseDatesResponse>(`/release/dates`, query, ctx);
+    return this.get<FredReleaseDatesResponse>(`/release/dates`, query, ctx, 'optional');
   }
 
   // ─── Core fetch ────────────────────────────────────────────────────────────
 
-  private get<T>(path: string, query: URLSearchParams, ctx: Context): Promise<T> {
+  private async get<T>(
+    path: string,
+    query: URLSearchParams,
+    ctx: Context,
+    policy?: 'optional',
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}?${query.toString()}`;
-    return withRetry(
-      async () => {
-        const response = await fetchWithTimeout(url, FRED_TIMEOUT_MS, ctx, {
-          signal: ctx.signal,
-          // Unknown series/category/release IDs are routine agent exploration —
-          // FRED answers them with 400/404. Still thrown; logged at debug only.
-          expectedStatuses: [400, 404],
-        });
-        const text = await response.text();
-        return this.parseJson<T>(text);
-      },
-      {
-        operation: `FredApiService.get${path}`,
-        baseDelayMs: 1500,
-        signal: ctx.signal,
-      },
-    );
+    const text =
+      policy === 'optional'
+        ? await this.fetchText(url, ctx.signal, FRED_OPTIONAL_TIMEOUT_MS)
+        : await withRetry(({ signal }) => this.fetchText(url, signal, FRED_TIMEOUT_MS), {
+            operation: `FredApiService.get${path}`,
+            context: ctx,
+            baseDelayMs: 1500,
+            deadlineMs: FRED_RETRY_DEADLINE_MS,
+            signal: ctx.signal,
+          });
+    ctx.signal.throwIfAborted();
+    return this.parseJson<T>(text);
+  }
+
+  private async fetchText(url: string, signal: AbortSignal, timeoutMs: number): Promise<string> {
+    signal.throwIfAborted();
+    const clock = new AbortController();
+    const timer = setTimeout(() => clock.abort(), timeoutMs);
+    try {
+      let response: Response;
+      let text: string | undefined;
+      try {
+        // The FRED key is on the URL, and upstream errors may echo it.
+        response = await fetch(url, { signal: AbortSignal.any([signal, clock.signal]) });
+        if (response.ok) return await response.text();
+        if (response.status === 400) text = await response.text();
+        else await response.body?.cancel();
+      } catch {
+        signal.throwIfAborted();
+        if (clock.signal.aborted) throw timeout('FRED request timed out.', { timeoutMs });
+        // A native fetch error or cause can contain the full request URL.
+        throw serviceUnavailable('FRED request failed before the response was fully read.');
+      }
+      signal.throwIfAborted();
+      throw fredHttpError(response, text, this.apiKey);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private parseJson<T>(text: string): T {
     if (/^\s*<(!DOCTYPE\s+html|html[\s>])/i.test(text)) {
-      throw new Error(
+      throw serializationError(
         'FRED API returned HTML instead of JSON — likely rate-limited or server error.',
       );
     }
-    return JSON.parse(text) as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch (error) {
+      if (error instanceof SyntaxError) throw serializationError('FRED API returned invalid JSON.');
+      throw error;
+    }
   }
 }
 
