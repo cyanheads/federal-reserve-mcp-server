@@ -13,23 +13,23 @@ const DEFAULT_LIMIT = 20;
 const MAX_SEARCH_OFFSET = 4000;
 const SEARCH_WINDOW = 5000;
 
-const FREQUENCIES = new Map(
-  [
-    'Daily',
-    'Weekly',
-    'Biweekly',
-    'Monthly',
-    'Quarterly',
-    'Semiannual',
-    'Annual',
-    'Not Applicable',
-  ].map((value) => [value.toLowerCase(), value]),
-);
-const SEASONAL_ADJUSTMENTS = new Map(
-  ['Seasonally Adjusted', 'Not Seasonally Adjusted', 'Seasonally Adjusted Annual Rate'].map(
-    (value) => [value.toLowerCase(), value],
-  ),
-);
+const FILTER_VALUES = {
+  frequency: [
+    ['D', 'Daily'],
+    ['W', 'Weekly'],
+    ['BW', 'Biweekly'],
+    ['M', 'Monthly'],
+    ['Q', 'Quarterly'],
+    ['SA', 'Semiannual'],
+    ['A', 'Annual'],
+    ['NA', 'Not Applicable'],
+  ],
+  seasonal_adjustment: [
+    ['SA', 'Seasonally Adjusted'],
+    ['NSA', 'Not Seasonally Adjusted'],
+    ['SAAR', 'Seasonally Adjusted Annual Rate'],
+  ],
+} as const;
 
 export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
   title: 'Search FRED Series',
@@ -50,6 +50,14 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       when: 'The requested offset exceeds FRED’s search ceiling.',
       recovery: 'Use offset 4000 or lower. Narrow the search or add filters to reach more matches.',
     },
+    {
+      reason: 'invalid_tag',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'FRED rejects a name in tag_names because the tag does not exist.',
+      recovery:
+        'Call fedreserve_get_series with include_tags set to true on a related series, then use the exact tag names from its result.',
+      thrownBy: 'service',
+    },
   ],
 
   input: z.object({
@@ -66,12 +74,14 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
       .string()
       .optional()
       .describe(
-        'Nonblank value for filter_variable. Frequency and seasonal adjustment labels are normalized. Units must match FRED’s spelling and case exactly. Supply both filter fields or neither.',
+        'Nonblank value for filter_variable. Frequency and seasonal adjustment accept FRED labels or short codes case-insensitively (for example M for Monthly, NSA for Not Seasonally Adjusted). Units must match FRED’s spelling and case exactly. Supply both filter fields or neither.',
       ),
     tag_names: z
       .string()
       .optional()
-      .describe('Semicolon-delimited list of tag names to filter by.'),
+      .describe(
+        'Semicolon-delimited list of FRED tag names. Discover them using fedreserve_get_series with include_tags set to true.',
+      ),
     limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 20).'),
     offset: z
       .number()
@@ -131,6 +141,10 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
     }
 
     const filterVariable = input.filter_variable;
+    const vocabulary =
+      filterVariable === 'frequency' || filterVariable === 'seasonal_adjustment'
+        ? FILTER_VALUES[filterVariable]
+        : undefined;
     let filterValue = input.filter_value?.trim();
     if (filterVariable !== undefined || filterValue !== undefined) {
       if (filterVariable === undefined) {
@@ -145,12 +159,14 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
           'filter_value is missing or blank; supply a nonblank value together with filter_variable.',
         );
       }
-      if (filterVariable === 'frequency') {
-        const comma = filterValue.indexOf(',');
-        const base = comma < 0 ? filterValue : filterValue.slice(0, comma).trimEnd();
-        filterValue = FREQUENCIES.get(base.toLowerCase()) ?? filterValue;
-      } else if (filterVariable === 'seasonal_adjustment') {
-        filterValue = SEASONAL_ADJUSTMENTS.get(filterValue.toLowerCase()) ?? filterValue;
+      if (vocabulary) {
+        const value = filterValue.toLowerCase();
+        const comma = filterVariable === 'frequency' ? value.indexOf(',') : -1;
+        const base = comma < 0 ? value : value.slice(0, comma).trimEnd();
+        const matching = vocabulary.find(
+          ([code, label]) => code.toLowerCase() === value || label.toLowerCase() === base,
+        );
+        if (matching) filterValue = matching[1];
       }
     }
     const resp = await getFredApiService().searchSeries(
@@ -167,17 +183,22 @@ export const fedreserveSearchSeriesTool = tool('fedreserve_search_series', {
     );
     ctx.enrich.total(resp.count);
 
-    const activeFilters: Record<string, string> = {};
-    if (filterVariable !== undefined && filterValue !== undefined) {
-      activeFilters[filterVariable] = filterValue;
-    }
-    if (input.tag_names) activeFilters.tag_names = input.tag_names;
+    const activeFilters = {
+      ...(filterVariable !== undefined &&
+        filterValue !== undefined && { [filterVariable]: filterValue }),
+      ...(input.tag_names && { tag_names: input.tag_names }),
+    };
 
     const series = resp.seriess ?? [];
     const notices: string[] = [];
     if (series.length === 0) {
       if (resp.count > 0) {
         notices.push(`No series on this page. Try a lower offset than ${resp.offset}.`);
+      } else if (vocabulary) {
+        const values = vocabulary.map(([code, label]) => `${code} (${label})`).join(', ');
+        notices.push(
+          `Recognized ${filterVariable} values: ${values}. Try another value, remove the filter, or broaden the search.`,
+        );
       } else {
         notices.push(
           filterVariable === undefined

@@ -10,12 +10,22 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { prepareSeriesBatch } from '@/mcp-server/tools/prepare-series-batch.js';
-import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
+import { getCanvasBridge, toDatasetField } from '@/services/canvas-bridge/canvas-bridge.js';
 import { FredDomainError } from '@/services/fred/fred-error.js';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
 const SPILLOVER_ROW_THRESHOLD = 500;
 const PREVIEW_ROWS = 20;
+const INLINE_PAGE_SIZE = 20;
+const FREQUENCY_RANK = new Map([
+  ['d', 0],
+  ['w', 1],
+  ['bw', 2],
+  ['m', 3],
+  ['q', 4],
+  ['sa', 5],
+  ['a', 6],
+]);
 const UNIT_LABELS = new Map([
   ['lin', 'Levels (No transformation)'],
   ['chg', 'Change'],
@@ -37,9 +47,24 @@ const OPTIONAL_METADATA_ERRORS = new Set([
   JsonRpcErrorCode.Forbidden,
   JsonRpcErrorCode.SerializationError,
 ]);
-const SeriesUnitsEnvelope = z.object({
-  seriess: z.array(z.object({ units: z.string().optional() })),
+const OptionalMetadataText = z.string().optional().catch(undefined);
+const SeriesMetadataEnvelope = z.object({
+  seriess: z.array(
+    z.object({
+      units: OptionalMetadataText,
+      frequency_short: OptionalMetadataText,
+      seasonal_adjustment: OptionalMetadataText,
+      seasonal_adjustment_short: OptionalMetadataText,
+    }),
+  ),
 });
+
+function frequencyRank(frequency: string | undefined): number | undefined {
+  const code = frequency?.toLowerCase();
+  if (code?.startsWith('we')) return FREQUENCY_RANK.get('w');
+  if (code?.startsWith('bwe')) return FREQUENCY_RANK.get('bw');
+  return code ? FREQUENCY_RANK.get(code) : undefined;
+}
 
 /** Form clients may send an unset date as an empty string. */
 const OptionalObservationDateSchema = z.preprocess(
@@ -53,9 +78,7 @@ const OptionalObservationDateSchema = z.preprocess(
 );
 
 /**
- * Truncate inline observation arrays to `maxRows` total across all series.
- * `observation_count` is preserved as the true fetched count — only `observations`
- * is sliced, so callers can distinguish "no data" from "crowded out by preview cap".
+ * Show up to PREVIEW_ROWS across series whose full pages are already staged.
  */
 function truncateInline(
   series: z.infer<typeof SeriesObservationsSchema>[],
@@ -75,6 +98,21 @@ const ObservationSchema = z.object({
     .describe('Observation value as a string (preserves trailing zeros; "." for missing).'),
 });
 
+function observationPage(observations: z.infer<typeof ObservationSchema>[]) {
+  let observation_start: string | null = null;
+  let observation_end: string | null = null;
+  for (const { date } of observations) {
+    if (observation_start === null || date < observation_start) observation_start = date;
+    if (observation_end === null || date > observation_end) observation_end = date;
+  }
+  return {
+    observation_start,
+    observation_end,
+    observation_count: observations.length,
+    observations,
+  };
+}
+
 const SeriesObservationsSchema = z.object({
   series_id: z.string().describe('FRED series ID.'),
   observation_start: z
@@ -91,6 +129,10 @@ const SeriesObservationsSchema = z.object({
     .string()
     .optional()
     .describe('Native unit of measure, when available from series metadata.'),
+  seasonal_adjustment: z
+    .string()
+    .optional()
+    .describe('Seasonal adjustment and annual-rate basis of the native series, when available.'),
   observation_count: z
     .number()
     .describe('Number of observations fetched for this series, before preview slicing.'),
@@ -218,7 +260,9 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
         .min(1)
         .max(100_000)
         .optional()
-        .describe('Maximum observations to fetch per series, before any inline preview.'),
+        .describe(
+          'Page size per series. If omitted, fetch the full upstream page with canvas or up to 20 rows per series inline.',
+        ),
       offset: z
         .number()
         .int()
@@ -281,9 +325,7 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
       notice: z
         .string()
         .optional()
-        .describe(
-          'Ignored aggregation setting or executable describe and query steps for staged rows.',
-        ),
+        .describe('Aggregation guidance or executable describe and query steps for staged rows.'),
       totalCount: z
         .number()
         .optional()
@@ -307,6 +349,9 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
       ctx.signal.throwIfAborted();
       ctx.log.info('fedreserve_get_observations', { count: ids.length });
 
+      const bridge = getCanvasBridge();
+      const limit = input.limit ?? (bridge ? undefined : INLINE_PAGE_SIZE);
+      const requestedRank = frequencyRank(input.frequency);
       const notices: string[] = [];
       if (input.aggregation_method && !input.frequency) {
         notices.push(
@@ -321,7 +366,7 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
         ...(input.frequency &&
           input.aggregation_method && { aggregation_method: input.aggregation_method }),
         ...(input.sort_order && { sort_order: input.sort_order }),
-        ...(input.limit !== undefined && { limit: input.limit }),
+        ...(limit !== undefined && { limit }),
         ...(input.offset !== undefined && { offset: input.offset }),
       };
 
@@ -374,36 +419,42 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
           );
         }
 
-        let observationStart: string | null = null;
-        let observationEnd: string | null = null;
-        for (const observation of obs) {
-          if (observationStart === null || observation.date < observationStart)
-            observationStart = observation.date;
-          if (observationEnd === null || observation.date > observationEnd)
-            observationEnd = observation.date;
-        }
-
         if (metadata.status === 'rejected') {
           const error: unknown = metadata.reason;
           if (!(error instanceof McpError) || !OPTIONAL_METADATA_ERRORS.has(error.code))
             throw error;
         }
-        const seriesUnits =
+        const seriesMetadata =
           metadata.status === 'fulfilled'
-            ? SeriesUnitsEnvelope.safeParse(metadata.value).data?.seriess[0]?.units
+            ? SeriesMetadataEnvelope.safeParse(metadata.value).data?.seriess[0]
             : undefined;
+        const seriesUnits = seriesMetadata?.units;
+        const seasonalAdjustment = seriesMetadata?.seasonal_adjustment;
         const units = resp.units ?? '';
         const unitsLabel = UNIT_LABELS.get(units);
+        const nativeRank = frequencyRank(seriesMetadata?.frequency_short);
+        if (
+          obs.length > 0 &&
+          input.aggregation_method === 'sum' &&
+          (input.units === undefined || input.units === 'lin') &&
+          requestedRank !== undefined &&
+          nativeRank !== undefined &&
+          requestedRank > nativeRank &&
+          (seriesMetadata?.seasonal_adjustment_short === 'SAAR' ||
+            (seriesUnits && /\bannual rate\b/i.test(seriesUnits)))
+        ) {
+          notices.push(
+            `${series_id}: sum adds annualized observations. Use avg to preserve the annual-rate basis.`,
+          );
+        }
         if (typeof resp.count === 'number') availableCounts.set(series_id, resp.count);
         seriesResults.push({
           series_id,
-          observation_start: observationStart,
-          observation_end: observationEnd,
+          ...observationPage(obs.map((o) => ({ date: o.date, value: o.value }))),
           units,
           ...(unitsLabel && { units_label: unitsLabel }),
           ...(seriesUnits && { series_units: seriesUnits }),
-          observation_count: obs.length,
-          observations: obs.map((o) => ({ date: o.date, value: o.value })),
+          ...(seasonalAdjustment && { seasonal_adjustment: seasonalAdjustment }),
         });
       }
 
@@ -418,43 +469,45 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
           { failed, ...deferred },
         );
       }
+      const fetched = seriesResults.reduce((sum, s) => sum + s.observation_count, 0);
+      const shouldSpill = fetched > 0 && (ids.length > 1 || fetched > SPILLOVER_ROW_THRESHOLD);
+      const registered = shouldSpill
+        ? await bridge?.registerDataframe(ctx, {
+            rows: seriesResults.flatMap((s) =>
+              s.observations.map((o) => ({ series_id: s.series_id, date: o.date, value: o.value })),
+            ),
+            sourceTool: 'fedreserve_get_observations',
+            queryParams: { series_ids: ids, ...sharedParams },
+          })
+        : undefined;
+      ctx.signal.throwIfAborted();
+
+      const registrationFailed = shouldSpill && bridge !== undefined && !registered;
+      if (registrationFailed && limit === undefined) {
+        for (const series of seriesResults) {
+          Object.assign(series, observationPage(series.observations.slice(0, INLINE_PAGE_SIZE)));
+        }
+      }
       if (
-        (input.limit !== undefined || input.offset !== undefined) &&
+        (limit !== undefined || input.offset !== undefined || registrationFailed) &&
         availableCounts.size === ids.length
       ) {
         ctx.enrich.total([...availableCounts.values()].reduce((sum, count) => sum + count, 0));
       }
 
-      const totalObservations = seriesResults.reduce((sum, s) => sum + s.observation_count, 0);
       const output = {
         series: seriesResults,
         failed,
-        total_observations: totalObservations,
+        total_observations: seriesResults.reduce((sum, s) => sum + s.observation_count, 0),
         ...deferred,
       };
-      const shouldSpill =
-        totalObservations > 0 && (ids.length > 1 || totalObservations > SPILLOVER_ROW_THRESHOLD);
-      if (!shouldSpill) {
-        if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
-        return output;
-      }
-
-      const bridge = getCanvasBridge();
-      ctx.signal.throwIfAborted();
-      const registered = await bridge?.registerDataframe(ctx, {
-        rows: seriesResults.flatMap((s) =>
-          s.observations.map((o) => ({ series_id: s.series_id, date: o.date, value: o.value })),
-        ),
-        sourceTool: 'fedreserve_get_observations',
-        queryParams: { series_ids: ids, ...sharedParams },
-      });
-      ctx.signal.throwIfAborted();
-      truncateInline(seriesResults, input.sort_order ?? 'asc');
-      const previewCount = seriesResults.reduce(
-        (sum, series) => sum + series.observations.length,
-        0,
-      );
+      const sortOrder = input.sort_order ?? 'asc';
       if (registered) {
+        truncateInline(seriesResults, sortOrder);
+        const previewCount = seriesResults.reduce(
+          (sum, series) => sum + series.observations.length,
+          0,
+        );
         notices.push(
           `Staged ${registered.rowCount} rows in ${registered.tableName}; showing ${previewCount} rows inline. Call fedreserve_dataframe_describe with ${JSON.stringify({ name: registered.tableName })}, then fedreserve_dataframe_query with ${JSON.stringify({ sql: `SELECT * FROM ${registered.tableName}` })}.`,
         );
@@ -462,9 +515,7 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
         return {
           ...output,
           dataset: {
-            name: registered.tableName,
-            row_count: registered.rowCount,
-            expires_at: registered.expiresAt,
+            ...toDatasetField(registered),
             preview_rows: previewCount,
             truncated: false,
           },
@@ -472,38 +523,35 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
       }
 
       if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
-      const canvasStatus = bridge ? 'Canvas registration failed.' : 'Canvas is unavailable.';
-      const clipped = seriesResults.find(
-        (series) => series.observations.length < series.observation_count,
-      );
-      if (!clipped)
-        return {
-          ...output,
-          message: `${canvasStatus} Showing all ${totalObservations} fetched observations inline.`,
-        };
-      const example = JSON.stringify({
-        ...sharedParams,
-        series_ids: clipped.series_id,
-        sort_order: 'desc',
-        limit: PREVIEW_ROWS,
-        offset: 0,
-      });
       const offset = input.offset ?? 0;
       const nextOffsets = seriesResults.flatMap(({ series_id, observation_count }) => {
         const nextOffset = offset + observation_count;
         const available = availableCounts.get(series_id);
-        return observation_count > 0 && (available === undefined || nextOffset < available)
+        return observation_count > 0 && available !== undefined && nextOffset < available
           ? [`${series_id}: ${nextOffset}`]
           : [];
       });
-      const continuation =
-        nextOffsets.length > 0
-          ? ` To continue past the fetched page, keep sort_order ${input.sort_order ?? 'asc'} and use the next offset for each series (${nextOffsets.join(', ')}).`
-          : '';
-      return {
-        ...output,
-        message: `${canvasStatus} Showing ${previewCount} of ${totalObservations} fetched observations inline. To page newest first, call fedreserve_get_observations for one series at a time with arguments such as ${example} and advance offset by its observation_count.${continuation}`,
-      };
+      const guidance: string[] = [];
+      if (registrationFailed) {
+        guidance.push('Canvas registration failed.');
+      } else if (shouldSpill && !bridge) {
+        guidance.push('Canvas is unavailable.');
+      }
+      if (guidance.length > 0) {
+        guidance.push(
+          output.total_observations === fetched
+            ? `Showing all ${fetched} fetched observations inline.`
+            : `Showing ${output.total_observations} observations inline.`,
+        );
+      }
+      if (nextOffsets.length > 0) {
+        const pageLimit = registrationFailed ? (limit ?? INLINE_PAGE_SIZE) : limit;
+        const keepLimit = pageLimit === undefined ? '' : ` and limit ${pageLimit}`;
+        guidance.push(
+          `Keep the same filters, sort_order ${sortOrder}${keepLimit}. Request each series with its next offset (${nextOffsets.join(', ')}).`,
+        );
+      }
+      return guidance.length > 0 ? { ...output, message: guidance.join(' ') } : output;
     },
 
     format: (result) => {
@@ -532,8 +580,11 @@ export function buildFedreserveGetObservationsTool(clampLimits: boolean) {
         const seriesUnits = s.series_units
           ? ` | Native series units: ${escapeMarkdownInline(s.series_units)}`
           : '';
+        const seasonalAdjustment = s.seasonal_adjustment
+          ? ` | Native series seasonal adjustment: ${escapeMarkdownInline(s.seasonal_adjustment)}`
+          : '';
         lines.push(
-          `Transformation: ${escapeMarkdownInline(s.units)}${unitsLabel}${seriesUnits}${range} | Count: ${s.observation_count}`,
+          `Transformation: ${escapeMarkdownInline(s.units)}${unitsLabel}${seriesUnits}${seasonalAdjustment}${range} | Count: ${s.observation_count}`,
         );
         if (s.observations.length > 0) {
           lines.push('');

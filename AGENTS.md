@@ -39,10 +39,11 @@ This server wraps the [FRED API](https://fred.stlouisfed.org/docs/api/fred/) (Fe
 | Tool | Description |
 |:-----|:------------|
 | `fedreserve_search_series` | Full-text search across FRED series titles, units, frequency, and tags |
-| `fedreserve_get_series` | Fetch metadata for up to 50 processed IDs, with optional release mapping and explicit batch deferral |
+| `fedreserve_get_series` | Fetch metadata for up to 50 processed IDs, with optional notes, tags, release mapping and explicit batch deferral |
 | `fedreserve_get_observations` | Fetch paged date+value observations, transform/native-unit labels, and DataCanvas spillover |
 | `fedreserve_browse_categories` | Navigate the FRED category tree |
 | `fedreserve_get_release` | Inspect a release by ID or name search |
+| `fedreserve_list_release_dates` | Page the cross-release calendar within an inclusive date window |
 | `fedreserve_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
 | `fedreserve_dataframe_query` | Run a SELECT against registered DataCanvas dataframes via DuckDB SQL |
 | `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in via `FRED_DATAFRAME_DROP_ENABLED=true`) |
@@ -247,6 +248,7 @@ src/
       fedreserve-get-observations.tool.ts     # fedreserve_get_observations
       fedreserve-browse-categories.tool.ts    # fedreserve_browse_categories
       fedreserve-get-release.tool.ts          # fedreserve_get_release
+      fedreserve-list-release-dates.tool.ts   # fedreserve_list_release_dates
       fedreserve-dataframe-describe.tool.ts   # fedreserve_dataframe_describe
       fedreserve-dataframe-query.tool.ts      # fedreserve_dataframe_query
       fedreserve-dataframe-drop.tool.ts       # fedreserve_dataframe_drop (opt-in)
@@ -347,7 +349,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 `bun run bundle` creates the Claude Desktop MCPB extension. `mcpb pack` reads root-anchored exclusions from `.mcpbignore`; root `skills/` ships. `scripts/clean-mcpb.ts` removes development dependencies, dependency-root agent docs, build-only files, node-gyp intermediates, and platform-specific DuckDB bindings. Nested runtime modules such as the MCP SDK's `dist/ext/skills/` stay in the bundle.
 
-`src/index.ts` defaults `CANVAS_PROVIDER_TYPE` to `duckdb` after loading `.env`. The MCPB manifest pins `CANVAS_PROVIDER_TYPE=none` because the bundle omits native DuckDB bindings. Its dataframe tools report `canvas_unavailable` and `fedreserve_get_observations` returns inline previews. Keep the bundle's provider fixed because enabling DuckDB there fails on the first staging call.
+`src/index.ts` defaults `CANVAS_PROVIDER_TYPE` to `duckdb` after loading `.env`. The MCPB manifest pins `CANVAS_PROVIDER_TYPE=none` because the bundle omits native DuckDB bindings. Its dataframe tools report `canvas_unavailable` and `fedreserve_get_observations` returns inline pages. Keep the bundle's provider fixed because enabling DuckDB there fails on the first staging call.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 

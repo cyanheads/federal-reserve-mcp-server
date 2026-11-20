@@ -4,7 +4,7 @@ description: Use fedreserve_* tools to compare FRED indicators, choose level or 
 license: Apache-2.0
 metadata:
   author: "cyanheads"
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Scope
@@ -14,12 +14,12 @@ Use FRED for published economic time series and release metadata. The server req
 ## Identifiers
 
 - Take the series ID from a search hit, a release's series list, or a category's series results. Follow child category IDs from the category browser when exploring a topic.
-- Take a release ID from a release lookup or request the optional release mapping on the series metadata. For an ambiguous release name, match the intended publication to an alternative and retry with its exact ID.
+- For “What comes out this week?”, start with `fedreserve_list_release_dates` and supply both dates. Take a release ID from that calendar, from a release lookup, or request the optional release mapping on the series metadata. For an ambiguous release name, match the intended publication to an alternative and retry with its exact ID.
 - Take the staged table name from `dataset.name` in the observation response. The dataframe tools use the table name directly and have no `canvas_id`.
 
 ## Gates
 
-- Check the series title, native units, frequency, and seasonal adjustment before comparing values. Compare rates at their published levels with `lin`. On a series measured in percent, `ch1` measures the difference from a year ago in percentage points, while `pc1` measures relative percent change. For year-over-year inflation from a price index, use `pc1`. Use the returned transformation label to interpret transformed values. The optional native unit describes the underlying series.
+- Check the series title, native units, frequency, and seasonal adjustment before comparing values. Request `include_notes: true` for methodology, attribution, and licensing before reusing a series. To discover search tags, request `include_tags: true` on a known series. Compare rates at their published levels with `lin`. On a series measured in percent, `ch1` measures the difference from a year ago in percentage points, while `pc1` measures relative percent change. For year-over-year inflation from a price index, use `pc1`. Use the returned transformation label to interpret transformed values. The optional native unit describes the underlying series. When downsampling annual-rate levels, choose `avg` to preserve the rate basis. A `sum` adds values that are already annualized.
 - Preserve `.` as missing and the returned text when reporting exact values. For the latest available numeric value, page newest first until you find one and report its observation date.
 - Inspect failed and deferred IDs before reporting a comparison as complete. Request deferred IDs separately and resolve failures or disclose the gap. Before concluding a search, release, or category lacks a series, check result counts and remaining pages. If the FRED search window is exhausted, narrow the query or add filters.
 - An unavailable release schedule leaves the date unknown. A successful empty schedule means FRED returned no upcoming dates. A scheduled release date and a series observation date describe different events.
@@ -33,7 +33,7 @@ For unemployment and underemployment, use `fedreserve_search_series` to resolve 
 
 ### Page observations
 
-Keep the series, date range, transformation, and sort order fixed while paging. Counts and date bounds describe the fetched page, even when the inline result shows a preview. If the preview is clipped and no dataset is available, re-fetch with smaller single-series pages to recover the omitted rows. For subsequent pages, advance the offset by that series' fetched observation count. Use this inline path on deployments without DuckDB, including the Claude Desktop bundle.
+Keep the series, date range, transformation, and sort order fixed while paging. A staged dataset includes a preview of the newest fetched rows, with counts and bounds for the full staged page. Without a dataset you get an inline page per series (default 20). Follow the offset given for each series with more rows. Use this inline path on deployments without DuckDB, including the Claude Desktop bundle.
 
 ### Query staged observations
 

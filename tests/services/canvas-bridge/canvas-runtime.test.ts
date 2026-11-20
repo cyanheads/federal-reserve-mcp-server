@@ -305,13 +305,14 @@ describe('installed canvas runtime', () => {
     },
   );
 
-  it('keeps a 20-row total budget and fetched counts when registration fails', async () => {
+  it('returns a 20-row page per series when omitted-limit registration fails', async () => {
     const http = createFetchMock([
       seriesMetadataRoute,
       {
         match: /^https:\/\/fred\.example\.test\/series\/observations\?/,
         respond: Response.json({
           units: 'lin',
+          count: 60,
           observations: Array.from({ length: 60 }, (_, index) => ({
             date: '2024-01-01',
             value: String(index),
@@ -326,9 +327,16 @@ describe('installed canvas runtime', () => {
         series_ids: ['UNRATE', 'FEDFUNDS'],
       });
       const output = fedreserveGetObservationsTool.output.parse(result.structuredContent);
-      expect(output.series.map((series) => series.observations.length)).toEqual([10, 10]);
-      expect(output.series.map((series) => series.observation_count)).toEqual([60, 60]);
-      expect(output.total_observations).toBe(120);
+      expect(output.series.map((series) => series.observations.length)).toEqual([20, 20]);
+      expect(output.series.map((series) => series.observations.at(-1)?.value)).toEqual([
+        '19',
+        '19',
+      ]);
+      expect(output.series.map((series) => series.observation_count)).toEqual([20, 20]);
+      expect(output.total_observations).toBe(40);
+      expect(result.structuredContent).toHaveProperty('totalCount', 120);
+      expect(output.message).toContain('UNRATE: 20, FEDFUNDS: 20');
+      expect(JSON.stringify(result.content)).toContain('UNRATE: 20, FEDFUNDS: 20');
       expect(result.structuredContent).not.toHaveProperty('notice');
     } finally {
       http.restore();

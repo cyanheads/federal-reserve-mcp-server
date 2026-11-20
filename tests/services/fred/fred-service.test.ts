@@ -162,7 +162,7 @@ describe('FredApiService', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('returns safe validation text for an unknown tag rather than an entity reason', async () => {
+  it('classifies an unknown tag without losing the safe validation text', async () => {
     const message = 'Value "zzxfredtag20261111" for variable tag_names does not exist.';
     mockFetch.mockResolvedValueOnce(
       Response.json(
@@ -171,9 +171,35 @@ describe('FredApiService', () => {
       ),
     );
     await expect(
-      service.searchSeries({ query: 'unemployment', tag_names: 'zzxfredtag20261111' }, ctx),
-    ).rejects.toMatchObject({ code: JsonRpcErrorCode.ValidationError, message });
+      service.searchSeries({ query: 'unemployment', tag_names: 'state;zzxfredtag20261111' }, ctx),
+    ).rejects.toMatchObject({
+      code: JsonRpcErrorCode.ValidationError,
+      data: { reason: 'invalid_tag', status: 400 },
+      message,
+    });
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'Value of filter_variable is not one of: frequency, units, seasonal_adjustment.',
+    'Value "state" for variable tag_names does not exist. Other diagnostic.',
+    'Value "test-key" for variable tag_names does not exist.',
+  ])('keeps an unrelated or unsafe HTTP 400 diagnostic generic', async (message) => {
+    mockFetch.mockResolvedValueOnce(
+      Response.json(
+        { error_code: 400, error_message: `Bad Request.  ${message}` },
+        { status: 400 },
+      ),
+    );
+    const error = await service
+      .searchSeries({ query: 'unemployment', tag_names: 'state' }, ctx)
+      .catch((failure: unknown) => failure);
+    expect(error).toMatchObject({
+      code: JsonRpcErrorCode.ValidationError,
+      data: { status: 400 },
+    });
+    expect(error).not.toHaveProperty('data.reason');
+    expect(JSON.stringify(error)).not.toContain('test-key');
   });
 
   it('preserves the allowed-frequency list for a native-frequency restriction', async () => {
@@ -252,6 +278,138 @@ describe('FredApiService', () => {
     const url = new URL(mockFetch.mock.calls[0]?.[0] as string);
     expect(url.pathname).toBe('/fred/series/release');
     expect(url.searchParams.get('series_id')).toBe('UNRATE');
+  });
+
+  it('validates series tags and preserves exact names from the official tag envelope', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        Response.json({
+          tags: [
+            { name: 'public domain: citation requested', popularity: 1 },
+            { name: 'source, inc.' },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ tags: [] }))
+      .mockResolvedValueOnce(Response.json({ tags: [{ name: 'known' }, { name: 42 }] }));
+    await expect(service.getSeriesTags('WAUR', ctx)).resolves.toEqual([
+      'public domain: citation requested',
+      'source, inc.',
+    ]);
+    const url = new URL(mockFetch.mock.calls[0]?.[0] as string);
+    expect(url.pathname).toBe('/fred/series/tags');
+    expect(url.searchParams.get('series_id')).toBe('WAUR');
+    await expect(service.getSeriesTags('EMPTY', ctx)).resolves.toEqual([]);
+    await expect(service.getSeriesTags('INVALID', ctx)).rejects.toMatchObject({
+      code: JsonRpcErrorCode.SerializationError,
+      message: 'FRED API returned invalid series tags.',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('attempts tags only once on transient errors', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFetch.mockImplementation(async () => new Response(null, { status: 503 }));
+      const outcome = expect(service.getSeriesTags('WAUR', ctx)).rejects.toMatchObject({
+        code: JsonRpcErrorCode.ServiceUnavailable,
+      });
+      await vi.runAllTimersAsync();
+      await outcome;
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('requests ascending calendar pages and retains the unpaged count after the end', async () => {
+    const firstDate = { date: '2026-11-20', release_id: 50, release_name: 'Employment Situation' };
+    const secondDate = {
+      date: '2026-11-23',
+      release_id: 53,
+      release_name: 'Gross Domestic Product',
+    };
+    const query = { start_date: '2026-11-20', end_date: '2026-11-23', limit: 1, offset: 0 };
+    mockFetch
+      .mockResolvedValueOnce(
+        Response.json({ count: 2, limit: 1, offset: 0, release_dates: [firstDate] }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ count: 2, limit: 1, offset: 1, release_dates: [secondDate] }),
+      )
+      .mockResolvedValueOnce(Response.json({ count: 2, limit: 1, offset: 2, release_dates: [] }))
+      .mockResolvedValueOnce(
+        Response.json({ count: 0, limit: 1000, offset: 0, release_dates: [] }),
+      );
+    await expect(service.listReleaseDates(query, ctx)).resolves.toMatchObject({
+      release_dates: [firstDate],
+    });
+    await expect(service.listReleaseDates({ ...query, offset: 1 }, ctx)).resolves.toMatchObject({
+      count: 2,
+      offset: 1,
+      release_dates: [secondDate],
+    });
+    await expect(service.listReleaseDates({ ...query, offset: 2 }, ctx)).resolves.toMatchObject({
+      count: 2,
+      offset: 2,
+      release_dates: [],
+    });
+    await expect(service.listReleaseDates({ ...query, limit: 1000 }, ctx)).resolves.toMatchObject({
+      count: 0,
+      offset: 0,
+      limit: 1000,
+      release_dates: [],
+    });
+    for (const [i, [request]] of mockFetch.mock.calls.entries()) {
+      const url = new URL(request as string);
+      expect(url.pathname).toBe('/fred/releases/dates');
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        realtime_start: '2026-11-20',
+        realtime_end: '2026-11-23',
+        include_release_dates_with_no_data: 'true',
+        order_by: 'release_date',
+        sort_order: 'asc',
+        limit: i === 3 ? '1000' : '1',
+        offset: i === 3 ? '0' : String(i),
+      });
+    }
+  });
+
+  it('retries transient calendar failures and rejects invalid nested release dates', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFetch
+        .mockResolvedValueOnce(new Response(null, { status: 503, headers: { 'Retry-After': '1' } }))
+        .mockResolvedValueOnce(
+          Response.json({
+            count: 1,
+            limit: 1,
+            offset: 0,
+            release_dates: [
+              { date: '2026-02-30', release_id: 50, release_name: 'Employment Situation' },
+            ],
+          }),
+        );
+      const outcome = expect(
+        service.listReleaseDates(
+          {
+            start_date: '2026-02-25',
+            end_date: '2026-03-01',
+            limit: 1,
+            offset: 0,
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject({
+        code: JsonRpcErrorCode.SerializationError,
+        message: 'FRED API returned an invalid release calendar.',
+      });
+      await vi.runAllTimersAsync();
+      await outcome;
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([

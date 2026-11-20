@@ -33,13 +33,15 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       reason: 'release_not_found',
       code: JsonRpcErrorCode.NotFound,
       when: 'release_id not found, or release_search matched no releases.',
-      recovery: 'Try a broader search term or verify the release_id using the FRED website.',
+      recovery:
+        'Try release_search with a broader term, or call fedreserve_get_series with include_release: true if you know a series ID.',
     },
     {
       reason: 'ambiguous_release_search',
       code: JsonRpcErrorCode.ValidationError,
       when: 'release_search matched multiple releases with similar names.',
-      recovery: 'Narrow the search term or use release_id for an exact match.',
+      recovery:
+        'Use a matching release_id below, or call fedreserve_get_series with include_release: true if you know a series ID.',
     },
   ],
 
@@ -106,19 +108,6 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
           .describe('One series belonging to this release.'),
       )
       .describe('Series belonging to this release (paginated).'),
-    search_alternatives: z
-      .array(
-        z
-          .object({
-            id: z.number().describe('Release ID.'),
-            name: z.string().describe('Release name.'),
-          })
-          .describe('An alternative matching release.'),
-      )
-      .optional()
-      .describe(
-        'Other releases that matched the search when ambiguous_release_search was triggered. Use one of these IDs with release_id for an exact match.',
-      ),
   }),
 
   enrichment: {
@@ -175,7 +164,7 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
             releaseId = (exact ?? firstMatch).id;
           } else {
             const alternatives = matches.slice(0, 10).map((r) => ({ id: r.id, name: r.name }));
-            const altList = alternatives.map((a) => `  - ${a.name} (ID: ${a.id})`).join('\n');
+            const altList = alternatives.map((a) => `- ${a.name} (ID: ${a.id})`).join('\n');
             throw ctx.fail(
               'ambiguous_release_search',
               `"${input.release_search}" matched ${matches.length} releases. Use release_id for an exact match.\n\nMatching releases:\n${altList}`,
@@ -300,14 +289,6 @@ export const fedreserveGetReleaseTool = tool('fedreserve_get_release', {
       lines.push(
         `- **${escapeMarkdownInline(s.id)}**: ${escapeMarkdownInline(s.title)} (${escapeMarkdownInline(s.units)}, ${escapeMarkdownInline(s.frequency)}, ${escapeMarkdownInline(s.seasonal_adjustment)}, updated ${escapeMarkdownInline(s.last_updated)})`,
       );
-    }
-
-    if (result.search_alternatives && result.search_alternatives.length > 0) {
-      lines.push('');
-      lines.push('**Other matching releases (use release_id for exact match):**');
-      for (const alt of result.search_alternatives) {
-        lines.push(`- [${alt.id}] ${escapeMarkdownInline(alt.name)}`);
-      }
     }
 
     return [{ type: 'text', text: lines.join('\n').trimEnd() }];

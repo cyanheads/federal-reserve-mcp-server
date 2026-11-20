@@ -8,6 +8,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveSearchSeriesTool } from '@/mcp-server/tools/definitions/fedreserve-search-series.tool.js';
+import { FredDomainError } from '@/services/fred/fred-error.js';
 
 const mockSearchSeries = vi.fn();
 const SEARCH_RESPONSE = {
@@ -131,8 +132,20 @@ describe('fedreserveSearchSeriesTool', () => {
     ['frequency', '  Monthly  ', 'Monthly'],
     ['frequency', 'Quarterly, End of Period', 'Quarterly'],
     ['frequency', 'Weekly, Ending Saturday', 'Weekly'],
+    ['frequency', 'd', 'Daily'],
+    ['frequency', ' w ', 'Weekly'],
+    ['frequency', 'bw', 'Biweekly'],
+    ['frequency', 'M', 'Monthly'],
+    ['frequency', 'q', 'Quarterly'],
+    ['frequency', 'sa', 'Semiannual'],
+    ['frequency', 'a', 'Annual'],
+    ['frequency', 'na', 'Not Applicable'],
+    ['frequency', 'M, future frequency', 'M, future frequency'],
     ['frequency', ' future frequency ', 'future frequency'],
     ['seasonal_adjustment', 'not seasonally adjusted', 'Not Seasonally Adjusted'],
+    ['seasonal_adjustment', 'SA', 'Seasonally Adjusted'],
+    ['seasonal_adjustment', 'nsa', 'Not Seasonally Adjusted'],
+    ['seasonal_adjustment', 'SaAr', 'Seasonally Adjusted Annual Rate'],
     ['units', ' Percent ', 'Percent'],
     ['units', 'percent', 'percent'],
   ] as const)(
@@ -152,6 +165,23 @@ describe('fedreserveSearchSeriesTool', () => {
         active_filters: { [filter_variable]: expected },
       });
       expect(JSON.stringify(result.content)).toContain(`${filter_variable}=${expected}`);
+    },
+  );
+
+  it.each([
+    ['frequency', 'W (Weekly)'],
+    ['seasonal_adjustment', 'NSA (Not Seasonally Adjusted)'],
+  ] as const)(
+    'lists recognized %s values when no matches exist',
+    async (filter_variable, guidance) => {
+      mockSearchSeries.mockResolvedValueOnce({ count: 0, offset: 0, limit: 1, seriess: [] });
+      const result = await runToolContract(fedreserveSearchSeriesTool, {
+        query: 'unemployment',
+        filter_variable,
+        filter_value: 'unknown',
+      });
+      expect(result.structuredContent).toMatchObject({ notice: expect.stringContaining(guidance) });
+      expect(JSON.stringify(result.content)).toContain(guidance);
     },
   );
 
@@ -262,6 +292,30 @@ describe('fedreserveSearchSeriesTool', () => {
     expect(result.series[1]?.popularity).toBeUndefined();
     // UNRATE has popularity
     expect(result.series[0]?.popularity).toBe(95);
+  });
+
+  it('exposes the unknown-tag reason and discovery hint on both output surfaces', async () => {
+    mockSearchSeries.mockRejectedValueOnce(
+      new FredDomainError(
+        'invalid_tag',
+        'Value "not a tag" for variable tag_names does not exist.',
+      ),
+    );
+    const result = await runToolContract(fedreserveSearchSeriesTool, {
+      query: 'unemployment',
+      tag_names: 'state;not a tag',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: JsonRpcErrorCode.ValidationError,
+        data: {
+          reason: 'invalid_tag',
+          recovery: { hint: expect.stringContaining('include_tags') },
+        },
+      },
+    });
+    expect(JSON.stringify(result.content)).toContain('include_tags');
   });
 
   it('format renders all series fields', () => {

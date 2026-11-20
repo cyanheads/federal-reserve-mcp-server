@@ -7,6 +7,7 @@ import { httpStatusToErrorCode } from '@cyanheads/mcp-ts-core/utils';
 type FredDomainReason =
   | 'category_not_found'
   | 'frequency_too_high'
+  | 'invalid_tag'
   | 'release_not_found'
   | 'series_not_found';
 
@@ -48,7 +49,7 @@ export class FredDomainError extends McpError {
 
   constructor(reason: FredDomainReason, message: string, data: ErrorData = {}) {
     const code =
-      reason === 'frequency_too_high'
+      reason === 'frequency_too_high' || reason === 'invalid_tag'
         ? JsonRpcErrorCode.ValidationError
         : JsonRpcErrorCode.NotFound;
     super(code, message, { ...data, reason });
@@ -70,6 +71,9 @@ export function fredHttpError(
     if (message) {
       const reason = entityReasons.get(message);
       if (reason) return new FredDomainError(reason, message, data);
+      if (/^Value ".+" for variable tag_names does not exist\.$/.test(message)) {
+        return new FredDomainError('invalid_tag', message, data);
+      }
       if (
         message.startsWith(frequencyPrefix) &&
         message.endsWith('.') &&

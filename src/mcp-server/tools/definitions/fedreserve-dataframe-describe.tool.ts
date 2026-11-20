@@ -30,9 +30,7 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
     name: z
       .string()
       .optional()
-      .describe(
-        'Optional table name (df_XXXXX_XXXXX) to describe a single dataframe. Omit to list all.',
-      ),
+      .describe('Exact table name to describe a single dataframe. Omit to list all.'),
   }),
 
   output: z.object({
@@ -40,7 +38,7 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
       .array(
         z
           .object({
-            name: z.string().describe('Canvas table name (df_XXXXX_XXXXX).'),
+            name: z.string().describe('Canvas table name.'),
             source_tool: z.string().describe('Tool that produced this dataframe.'),
             query_params: z
               .record(z.string(), z.unknown())
@@ -71,7 +69,11 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
           })
           .describe('Provenance and schema for one dataframe.'),
       )
-      .describe('Active dataframes for this tenant, newest first. Empty when none are registered.'),
+      .describe('Matching active dataframes for this tenant, newest first.'),
+    missing_name: z
+      .string()
+      .optional()
+      .describe('Requested name when no active dataframe matches.'),
   }),
 
   async handler(input, ctx) {
@@ -97,14 +99,21 @@ export const fedreserveDataframeDescribeTool = tool('fedreserve_dataframe_descri
           nullable: c.nullable ?? true,
         })),
       })),
+      ...(input.name && entries.length === 0 && { missing_name: input.name }),
     };
   },
 
   format: (result) => {
-    if (result.dataframes.length === 0) {
-      return [{ type: 'text', text: 'No active dataframes.' }];
+    const lines: string[] = [];
+    if (result.missing_name !== undefined) {
+      lines.push(
+        `No active dataframe named ${escapeMarkdownInline(result.missing_name)}. Omit name to list active dataframes.`,
+      );
     }
-    const lines: string[] = [`**${result.dataframes.length} active dataframe(s):**\n`];
+    if (result.dataframes.length === 0) {
+      return [{ type: 'text', text: lines[0] ?? 'No active dataframes.' }];
+    }
+    lines.push(`**${result.dataframes.length} active dataframe(s):**\n`);
     for (const df of result.dataframes) {
       const truncated = df.truncated
         ? ` (truncated${df.max_rows ? ` at ${df.max_rows}` : ''})`

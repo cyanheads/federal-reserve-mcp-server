@@ -7,7 +7,7 @@
  * @module services/fred/fred-service
  */
 
-import type { Context } from '@cyanheads/mcp-ts-core';
+import { type Context, z } from '@cyanheads/mcp-ts-core';
 import { serializationError, serviceUnavailable, timeout } from '@cyanheads/mcp-ts-core/errors';
 import { withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
@@ -50,6 +50,14 @@ export interface GetReleaseDatesParams {
   release_id: number;
 }
 
+/** Inclusive calendar window and FRED page coordinates. */
+export interface ListReleaseDatesParams {
+  end_date: string;
+  limit: number;
+  offset: number;
+  start_date: string;
+}
+
 export interface GetReleaseSeriesParams {
   limit?: number;
   offset?: number;
@@ -66,6 +74,22 @@ export interface GetCategorySeriesParams {
 const FRED_TIMEOUT_MS = 15_000;
 const FRED_RETRY_DEADLINE_MS = 45_000;
 const FRED_OPTIONAL_TIMEOUT_MS = 2_000;
+
+const SeriesTagsEnvelope = z.object({
+  tags: z.array(z.object({ name: z.string().min(1) })),
+});
+const ReleaseCalendarEnvelope = z.object({
+  count: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(1000),
+  release_dates: z.array(
+    z.object({
+      date: z.iso.date(),
+      release_id: z.number().int().positive(),
+      release_name: z.string().min(1),
+    }),
+  ),
+});
 
 export class FredApiService {
   private readonly baseUrl: string;
@@ -107,6 +131,16 @@ export class FredApiService {
     return this.get<FredReleaseResponse>('/series/release', query, ctx, 'optional');
   }
 
+  /** Fetch the exact tag names for a series in a single bounded attempt. */
+  async getSeriesTags(series_id: string, ctx: Context): Promise<string[]> {
+    const query = new URLSearchParams({ api_key: this.apiKey, file_type: 'json', series_id });
+    const result = SeriesTagsEnvelope.safeParse(
+      await this.get<unknown>('/series/tags', query, ctx, 'optional'),
+    );
+    if (!result.success) throw serializationError('FRED API returned invalid series tags.');
+    return result.data.tags.map(({ name }) => name);
+  }
+
   /** Fetch observations for a single series. */
   getObservations(params: GetObservationsParams, ctx: Context): Promise<FredObservationsResponse> {
     const query = new URLSearchParams({
@@ -146,7 +180,7 @@ export class FredApiService {
     return this.get<FredCategoryResponse>(`/category/children`, query, ctx);
   }
 
-  /** Fetch a sample of series within a category (for leaf nodes). */
+  /** Fetch a popularity-ordered page of series attached directly to a category. */
   getCategorySeries(
     params: GetCategorySeriesParams,
     ctx: Context,
@@ -212,6 +246,26 @@ export class FredApiService {
       limit: '5',
     });
     return this.get<FredReleaseDatesResponse>(`/release/dates`, query, ctx, 'optional');
+  }
+
+  /** Fetch a page of scheduled dates across all releases within an inclusive window. */
+  async listReleaseDates(params: ListReleaseDatesParams, ctx: Context) {
+    const query = new URLSearchParams({
+      api_key: this.apiKey,
+      file_type: 'json',
+      realtime_start: params.start_date,
+      realtime_end: params.end_date,
+      include_release_dates_with_no_data: 'true',
+      order_by: 'release_date',
+      sort_order: 'asc',
+      limit: String(params.limit),
+      offset: String(params.offset),
+    });
+    const result = ReleaseCalendarEnvelope.safeParse(
+      await this.get<unknown>('/releases/dates', query, ctx),
+    );
+    if (!result.success) throw serializationError('FRED API returned an invalid release calendar.');
+    return result.data;
   }
 
   // ─── Core fetch ────────────────────────────────────────────────────────────

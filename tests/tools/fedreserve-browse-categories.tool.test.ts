@@ -32,7 +32,7 @@ describe('fedreserveBrowseCategoriesTool', () => {
     mockGetCategorySeries.mockReset();
   });
 
-  it('returns root category with children', async () => {
+  it('pages direct series independently of children at successive hierarchy levels', async () => {
     mockGetCategory.mockResolvedValueOnce({
       categories: [{ id: 0, name: 'Categories', parent_id: undefined }],
     });
@@ -43,6 +43,7 @@ describe('fedreserveBrowseCategoriesTool', () => {
       ],
     });
 
+    mockGetCategorySeries.mockResolvedValueOnce({ count: 0, seriess: [] });
     const input = fedreserveBrowseCategoriesTool.input.parse({});
     const result = await fedreserveBrowseCategoriesTool.handler(input, ctx);
 
@@ -50,8 +51,8 @@ describe('fedreserveBrowseCategoriesTool', () => {
     expect(result.category.name).toBe('Categories');
     expect(result.children).toHaveLength(2);
     expect(result.children[0]?.id).toBe(32991);
-    expect(result.sample_series).toBeUndefined();
-    expect(mockGetCategorySeries).not.toHaveBeenCalled();
+    expect(result.sample_series).toEqual([]);
+    expect(result.series_count).toBe(0);
 
     mockGetCategory.mockResolvedValueOnce({
       categories: [{ id: 32991, name: 'Money, Banking, & Finance', parent_id: 0 }],
@@ -59,6 +60,15 @@ describe('fedreserveBrowseCategoriesTool', () => {
     mockGetCategoryChildren.mockResolvedValueOnce({
       categories: [{ id: 32992, name: 'Interest Rates' }],
     });
+    const row = {
+      id: 'FEDFUNDS',
+      title: 'Effective Federal Funds Rate',
+      units: 'Percent',
+      frequency: 'Monthly',
+      seasonal_adjustment: 'Not Seasonally Adjusted',
+      last_updated: '2026-11-10 12:00:00-06',
+    };
+    mockGetCategorySeries.mockResolvedValueOnce({ count: 11, seriess: [row] });
     const child = await runToolContract(fedreserveBrowseCategoriesTool, {
       category_id: 32991,
       series_limit: 2,
@@ -68,9 +78,19 @@ describe('fedreserveBrowseCategoriesTool', () => {
       category: { id: 32991, parent_id: 0 },
       children: [{ id: 32992 }],
     });
-    expect(child.structuredContent).not.toHaveProperty('series_count');
-    expect(child.structuredContent).not.toHaveProperty('totalCount');
-    expect(mockGetCategorySeries).not.toHaveBeenCalled();
+    expect(child.structuredContent).toMatchObject({
+      sample_series: [row],
+      series_count: 11,
+      totalCount: 11,
+    });
+    expect(mockGetCategorySeries).toHaveBeenLastCalledWith(
+      { category_id: 32991, limit: 2, offset: 10 },
+      expect.anything(),
+    );
+    const rendered = JSON.stringify(child.content);
+    for (const value of [row.seasonal_adjustment, row.last_updated, 'Interest Rates', '1 of 11']) {
+      expect(rendered).toContain(value);
+    }
   });
 
   it('fetches sample series for a leaf node (no children)', async () => {
@@ -239,6 +259,8 @@ describe('fedreserveBrowseCategoriesTool', () => {
   it('format renders category name and children', () => {
     const output = {
       category: { id: 0, name: 'Categories' },
+      series_count: 0,
+      sample_series: [],
       children: [
         { id: 32991, name: 'Money, Banking, & Finance' },
         { id: 10, name: 'Population' },

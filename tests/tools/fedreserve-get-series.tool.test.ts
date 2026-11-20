@@ -21,11 +21,13 @@ import { FredDomainError } from '@/services/fred/fred-error.js';
 
 const mockGetSeriesById = vi.fn();
 const mockGetSeriesRelease = vi.fn();
+const mockGetSeriesTags = vi.fn();
 
 vi.mock('@/services/fred/fred-service.js', () => ({
   getFredApiService: () => ({
     getSeriesById: mockGetSeriesById,
     getSeriesRelease: mockGetSeriesRelease,
+    getSeriesTags: mockGetSeriesTags,
   }),
 }));
 
@@ -48,6 +50,7 @@ describe('fedreserveGetSeriesTool', () => {
     ctx = createMockContext({ errors: fedreserveGetSeriesTool.errors });
     mockGetSeriesById.mockReset();
     mockGetSeriesRelease.mockReset();
+    mockGetSeriesTags.mockReset();
   });
 
   it('returns metadata for a single series ID string', async () => {
@@ -127,6 +130,66 @@ describe('fedreserveGetSeriesTool', () => {
     expect(JSON.stringify(result.content)).toContain('50');
   });
 
+  it('retains multiline notes on both output surfaces', async () => {
+    const notes = ' Methodology\nCopyright and citation terms.\n';
+    mockGetSeriesById.mockResolvedValueOnce({ seriess: [{ ...UNRATE_RAW, notes }] });
+    const result = await runToolContract(fedreserveGetSeriesTool, {
+      series_ids: 'UNRATE',
+      include_notes: true,
+    });
+    expect(result.structuredContent).toMatchObject({ series: [{ notes }] });
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining('> &#32;Methodology\\\nCopyright and citation terms.&#10;'),
+    });
+    expect(mockGetSeriesById).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits absent or blank notes when requested', async () => {
+    mockGetSeriesById
+      .mockResolvedValueOnce({ seriess: [UNRATE_RAW] })
+      .mockResolvedValueOnce({ seriess: [{ ...UNRATE_RAW, id: 'GDP', notes: '  \n' }] });
+    const result = await runToolContract(fedreserveGetSeriesTool, {
+      series_ids: ['UNRATE', 'GDP'],
+      include_notes: true,
+    });
+    const { series } = fedreserveGetSeriesTool.output.parse(result.structuredContent);
+    expect(series).toHaveLength(2);
+    for (const entry of series) expect(entry).not.toHaveProperty('notes');
+  });
+
+  it.each(['\r\n', '\r', '\0'])(
+    'preserves notes containing %j through JSON rendering',
+    async (separator) => {
+      const notes = `  Méthodologie ${separator} Copyright ©  `;
+      mockGetSeriesById.mockResolvedValueOnce({ seriess: [{ ...UNRATE_RAW, notes }] });
+      const result = await runToolContract(fedreserveGetSeriesTool, {
+        series_ids: 'UNRATE',
+        include_notes: true,
+      });
+      expect(result.structuredContent).toMatchObject({ series: [{ notes }] });
+      const block = result.content[0];
+      const text = block?.type === 'text' ? block.text : '';
+      const json = text.match(/^```json\n(.+)\n```$/m)?.[1];
+      expect(JSON.parse(json ?? 'null')).toBe(notes);
+      expect(text).toContain('**Units:** Percent');
+    },
+  );
+
+  it.each([{}, { include_notes: false }])('omits notes with %j', async (flags) => {
+    const notes = 'Methodology and copyright terms.';
+    mockGetSeriesById.mockResolvedValueOnce({ seriess: [{ ...UNRATE_RAW, notes }] });
+    const result = await runToolContract(fedreserveGetSeriesTool, {
+      series_ids: 'UNRATE',
+      ...flags,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ series: [UNRATE_RAW] });
+    expect(
+      fedreserveGetSeriesTool.output.parse(result.structuredContent).series[0],
+    ).not.toHaveProperty('notes');
+    expect(JSON.stringify(result.content)).not.toContain(notes);
+  });
+
   it.each([
     serviceUnavailable('FRED is unavailable.'),
     serializationError('FRED returned invalid JSON.'),
@@ -194,27 +257,95 @@ describe('fedreserveGetSeriesTool', () => {
     expect(strict.input.safeParse({ series_ids: ids.slice(0, 50) }).success).toBe(true);
   });
 
-  it('accepts 100 IDs and requests releases only for successful processed IDs', async () => {
+  it('accepts 100 IDs and enriches only successful processed IDs', async () => {
     mockGetSeriesById.mockImplementation(async (id: string) => {
       if (id === 'ID1') throw new FredDomainError('series_not_found', 'The series does not exist.');
       return { seriess: [{ ...UNRATE_RAW, id }] };
     });
     mockGetSeriesRelease.mockResolvedValue({ releases: [] });
+    mockGetSeriesTags.mockResolvedValue([]);
     const result = await runToolContract(fedreserveGetSeriesTool, {
       series_ids: Array.from({ length: 100 }, (_, i) => `ID${i}`),
       include_release: true,
+      include_tags: true,
     });
     expect(result.isError).toBeFalsy();
     expect(mockGetSeriesById).toHaveBeenCalledTimes(50);
     expect(mockGetSeriesRelease).toHaveBeenCalledTimes(49);
     expect(mockGetSeriesRelease.mock.calls.map(([id]) => id)).not.toContain('ID1');
     expect(mockGetSeriesRelease.mock.calls.map(([id]) => id)).not.toContain('ID50');
+    expect(mockGetSeriesTags.mock.calls.map(([id]) => id)).toEqual(
+      mockGetSeriesRelease.mock.calls.map(([id]) => id),
+    );
     expect(result.structuredContent).toMatchObject({
       failed: [{ id: 'ID1', error: 'The series does not exist.' }],
       notice: expect.stringContaining('ID0'),
     });
     expect(JSON.stringify(result.content)).toContain('The series does not exist.');
   });
+
+  it.each([{}, { include_tags: false }])('skips tag requests with %j', async (flags) => {
+    mockGetSeriesById.mockResolvedValueOnce({ seriess: [UNRATE_RAW] });
+    const result = await runToolContract(fedreserveGetSeriesTool, {
+      series_ids: 'UNRATE',
+      ...flags,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(mockGetSeriesTags).not.toHaveBeenCalled();
+    expect(
+      fedreserveGetSeriesTool.output.parse(result.structuredContent).series[0],
+    ).not.toHaveProperty('tags');
+  });
+
+  it('renders exact and empty tag lists while retaining independent lookup failures', async () => {
+    mockGetSeriesById.mockImplementation(async (id: string) => ({
+      seriess: [{ ...UNRATE_RAW, id }],
+    }));
+    const tags = ['public domain: citation requested', 'source, inc.'];
+    mockGetSeriesTags
+      .mockResolvedValueOnce(tags)
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(timeout('Tags were unavailable.'));
+    mockGetSeriesRelease
+      .mockResolvedValueOnce({ releases: [{ id: 50, name: 'Employment Situation' }] })
+      .mockResolvedValueOnce({ releases: [] })
+      .mockResolvedValueOnce({ releases: [{ id: 54, name: 'Federal Funds' }] });
+    const result = await runToolContract(fedreserveGetSeriesTool, {
+      series_ids: 'UNRATE,GDP,FEDFUNDS',
+      include_tags: true,
+      include_release: true,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      series: [
+        { id: 'UNRATE', tags, release: { id: 50 } },
+        { id: 'GDP', tags: [] },
+        { id: 'FEDFUNDS', release: { id: 54 } },
+      ],
+      notice:
+        'Release mapping unavailable for GDP; series metadata is complete. Tags unavailable for FEDFUNDS; series metadata is complete.',
+    });
+    const { series } = fedreserveGetSeriesTool.output.parse(result.structuredContent);
+    expect(series[2]).not.toHaveProperty('tags');
+    const content = JSON.stringify(result.content);
+    for (const tag of tags) expect(content).toContain(tag);
+    expect(content).toContain('Tags:** None.');
+    expect(content).toContain('Release mapping unavailable for GDP');
+    expect(content).toContain('Tags unavailable for FEDFUNDS');
+  });
+
+  it.each(['include_tags', 'include_notes'] as const)(
+    'rejects a nonboolean %s before fetching',
+    async (field) => {
+      const result = await runToolContract(fedreserveGetSeriesTool, {
+        series_ids: 'UNRATE',
+        [field]: 'yes',
+      } as never);
+      expect(result.isError).toBe(true);
+      expect(mockGetSeriesById).not.toHaveBeenCalled();
+      expect(mockGetSeriesTags).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not turn secondary validation failures into a success', async () => {
     mockGetSeriesById.mockResolvedValue({ seriess: [UNRATE_RAW] });
@@ -269,24 +400,28 @@ describe('fedreserveGetSeriesTool', () => {
     expect(JSON.stringify(result.content)).toContain('The series does not exist.');
   });
 
-  it('propagates cancellation during an optional release lookup', async () => {
-    const controller = new AbortController();
-    const reason = new DOMException('Caller cancelled', 'AbortError');
-    mockGetSeriesById.mockResolvedValue({ seriess: [UNRATE_RAW] });
-    mockGetSeriesRelease.mockImplementation(async () => {
-      controller.abort(reason);
-      throw reason;
-    });
-    const context = createMockContext({
-      errors: fedreserveGetSeriesTool.errors,
-      signal: controller.signal,
-    });
-    const input = fedreserveGetSeriesTool.input.parse({
-      series_ids: 'UNRATE',
-      include_release: true,
-    });
-    await expect(fedreserveGetSeriesTool.handler(input, context)).rejects.toBe(reason);
-  });
+  it.each(['include_release', 'include_tags'] as const)(
+    'propagates cancellation during %s',
+    async (flag) => {
+      const controller = new AbortController();
+      const reason = new DOMException('Caller cancelled', 'AbortError');
+      mockGetSeriesById.mockResolvedValue({ seriess: [UNRATE_RAW] });
+      const lookup = flag === 'include_release' ? mockGetSeriesRelease : mockGetSeriesTags;
+      lookup.mockImplementation(async () => {
+        controller.abort(reason);
+        throw reason;
+      });
+      const context = createMockContext({
+        errors: fedreserveGetSeriesTool.errors,
+        signal: controller.signal,
+      });
+      const input = fedreserveGetSeriesTool.input.parse({
+        series_ids: 'UNRATE',
+        [flag]: true,
+      });
+      await expect(fedreserveGetSeriesTool.handler(input, context)).rejects.toBe(reason);
+    },
+  );
 
   it('returns partial success for a batch with one failure', async () => {
     mockGetSeriesById
@@ -387,7 +522,7 @@ describe('fedreserveGetSeriesTool', () => {
 
     it('does not advertise the alias on inputSchema', () => {
       const shape = Object.keys(fedreserveGetSeriesTool.input.shape);
-      expect(shape).toEqual(['series_ids', 'include_release']);
+      expect(shape).toEqual(['series_ids', 'include_release', 'include_notes', 'include_tags']);
     });
 
     it('rejects an undeclared key that is not an alias', async () => {

@@ -1,7 +1,7 @@
 <div align="center">
   <h1>@cyanheads/federal-reserve-mcp-server</h1>
   <p><b>Search and fetch ~800K Federal Reserve economic time-series from the FRED API via MCP. STDIO or Streamable HTTP.</b>
-  <div>8 Tools</div>
+  <div>9 Tools</div>
   </p>
 </div>
 
@@ -30,6 +30,7 @@ Economic data from FRED, the St. Louis Fed's database of ~800K time series on ou
 | `fedreserve_get_observations` | Fetch date+value observations for one or more series, with date-range and unit-transform filtering |
 | `fedreserve_browse_categories` | Navigate the FRED category tree |
 | `fedreserve_get_release` | Look up a FRED release by ID or name search, with its associated series |
+| `fedreserve_list_release_dates` | Browse scheduled releases within a date range |
 | `fedreserve_dataframe_describe` | List active DataCanvas dataframes with provenance, schema, and row count |
 | `fedreserve_dataframe_query` | Run a SELECT against registered DataCanvas dataframes via DuckDB SQL |
 | `fedreserve_dataframe_drop` | Drop a DataCanvas dataframe by name (opt-in) |
@@ -42,7 +43,7 @@ The [FRED workflow guide](./skills/federal-reserve-guide/SKILL.md) covers indica
 
 - Full-text or series-ID search, with `frequency`, `units`, `seasonal_adjustment`, and `tag_names` filters; `filter_variable` and `filter_value` must be supplied together or the call returns `invalid_filter`
 - Pagination via `limit` (default 20, max 1000). FRED accepts a maximum starting `offset` of 4000; use `offset: 4000, limit: 1000` for the final search-window page. Narrow the query or add filters to reach matches beyond that window.
-- Frequency and seasonal-adjustment filter values are trimmed and normalized to FRED's casing; full frequency labels reduce to their base word. Units filters remain exact and case-sensitive.
+- Frequency and seasonal-adjustment filters accept FRED labels and short codes such as `M`, `Q`, `SA`, and `NSA`. Request `include_tags: true` on a known series to discover valid `tag_names`. Units filters remain exact and case-sensitive.
 - Output includes `active_filters` and `popularity` (0–100) when available; empty results suggest a broader query or category browsing
 
 ---
@@ -50,7 +51,7 @@ The [FRED workflow guide](./skills/federal-reserve-guide/SKILL.md) covers indica
 ### `fedreserve_get_series` <sub>tool</sub>
 
 - Accepts an ID, comma-separated IDs, or an array; trims, uppercases, and deduplicates IDs. Processes 50 unique IDs and returns the remainder in `deferred_ids` (up to 100 supplied IDs by default).
-- Returns title, units, frequency, seasonal adjustment, observation range, popularity, and notes per series
+- Returns title, units, frequency, seasonal adjustment, observation range, and popularity per series. Request `include_notes: true` for methodology and source licensing notes. Use `include_tags: true` for the series’ FRED tags.
 - Failed IDs in a batch land in a `failed` array with FRED's safe error text; a genuinely missing single ID throws `series_not_found`, while validation and upstream availability errors retain their codes. An entirely failed batch throws `partial_failure`.
 - `include_release: true` adds the release ID and name for each successful series through one optional bounded lookup. Pass its ID to `fedreserve_get_release` for the schedule; unavailable mappings are disclosed in a notice.
 
@@ -59,15 +60,15 @@ The [FRED workflow guide](./skills/federal-reserve-guide/SKILL.md) covers indica
 ### `fedreserve_get_observations` <sub>tool</sub>
 
 - Normalizes IDs like `fedreserve_get_series`, processes 10 unique IDs, and returns excess IDs in `deferred_ids`. Accepts `observation_start` / `observation_end` (`YYYY-MM-DD`), unit transforms, and frequency downsampling via `aggregation_method` (`avg`, `sum`, `eop`). Reversed dates fail before fetching; aggregation without a frequency adds a notice.
-- `sort_order` (`asc` by default), `limit` (1–100000), and `offset` apply upstream to each series. Omitting paging controls retains the full fetch. For the latest three observations, use `sort_order: "desc", limit: 3`; `offset: 3` gets the next three.
-- Returns date/value observations (strings preserve trailing zeros), transform code `units`, transform description `units_label`, optional native `series_units`, and per-series failures. An entirely failed batch throws `partial_failure`.
-- Multi-series or >500-row results go to a DataCanvas table with a 20-row preview distributed across series. Previews select the newest fetched rows in the requested order; counts and date bounds describe the entire fetched page. The `notice` names `dataset.name` and executable describe/query calls. Without canvas, the inline preview includes paging guidance. Advance a follow-up offset by each series' fetched `observation_count`, not its preview length.
+- `sort_order` (`asc` by default), `limit` (1–100000), and `offset` apply upstream to each series. Omitting `limit` retains the full fetch when DataCanvas is enabled. With DataCanvas disabled, the default is 20 per series. For the latest three observations, use `sort_order: "desc", limit: 3`; `offset: 3` gets the next three.
+- Returns date/value observations (strings preserve trailing zeros), transform code `units`, transform description `units_label`, optional native `series_units` and `seasonal_adjustment`, and per-series failures. When downsampling annual-rate levels, `sum` adds annualized values. Use `avg` to retain their rate basis. An entirely failed batch throws `partial_failure`.
+- Multi-series or >500-row results go to a DataCanvas table with a 20-row preview distributed across series. Previews select the newest fetched rows in the requested order; counts and date bounds describe the entire fetched page. The `notice` names `dataset.name` and executable describe/query calls. Without a staged dataset, the inline response returns the requested page per series (default 20). Follow the continuation offset for each series with remaining rows.
 
 ---
 
 ### `fedreserve_browse_categories` <sub>tool</sub>
 
-- Omit `category_id` to start at the root (ID 0); returns the category and its children. Leaf categories return popularity-descending `sample_series`, paged by `series_limit` (default 10, max 1000) and `series_offset`, plus the upstream `series_count` even on empty pages.
+- Omit `category_id` to start at the root (ID 0); returns the category and its children. Every category returns its directly attached series in `sample_series`, ordered by popularity, paged by `series_limit` (default 10, max 1000) and `series_offset`, plus the upstream `series_count` even on empty pages.
 - An unknown `category_id` throws `category_not_found`
 
 ---
@@ -76,7 +77,14 @@ The [FRED workflow guide](./skills/federal-reserve-guide/SKILL.md) covers indica
 
 - Takes exactly one of `release_id` or `release_search` (case-insensitive name substring)
 - Returns release name, link, notes, the next five scheduled dates, and a popularity-descending series list (`series_limit` default 20, max 1000; `series_offset`). A failed optional schedule request sets `scheduled_dates_unavailable`; an empty successful schedule remains distinct.
-- An ambiguous name returns up to 10 `search_alternatives`; retry with the exact `release_id`
+- An ambiguous name puts up to 10 alternatives in the error data. Retry with the exact `release_id`. If you know a series ID, request its release mapping with `fedreserve_get_series`.
+
+---
+
+### `fedreserve_list_release_dates` <sub>tool</sub>
+
+- Lists scheduled dates across releases in ascending order. The inclusive window defaults to today (UTC) through seven days later. Set `start_date` and `end_date` to select another window.
+- Page with `limit` (default 50, max 1000) and `offset`. Pass a returned `release_id` to `fedreserve_get_release`. Sources schedule the releases and FRED may receive the data later.
 
 ---
 
@@ -116,9 +124,9 @@ FRED-specific:
 Agent-friendly output:
 
 - Partial failures: `fedreserve_get_series` and `fedreserve_get_observations` retain successful series and per-ID failures; an entirely failed batch returns an error
-- Ambiguous release names return `search_alternatives` instead of a guess
+- Ambiguous release errors include candidate names and IDs
 - Every dataframe carries `source_tool`, `query_params`, and TTL fields
-- Without DataCanvas, `fedreserve_get_observations` returns a truncated inline preview with an explanatory `message`
+- Without DataCanvas, `fedreserve_get_observations` returns an inline page with per-series continuation guidance
 
 ## Getting started
 
@@ -252,7 +260,7 @@ The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `
 |:----------|:--------|
 | `src/index.ts` | `createApp()` entry point — registers tools and inits services. |
 | `src/config` | Server-specific environment variable parsing and validation with Zod. |
-| `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). Eight tools across FRED domain and DataCanvas. |
+| `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). FRED discovery, series observations and DataCanvas queries. |
 | `src/services/fred` | FRED API service — HTTP client, retry, 429 handling, key injection. |
 | `src/services/canvas-bridge` | DataCanvas adapter — table naming, TTL/provenance tracking, SQL gate extras. |
 | `tests/` | Unit and integration tests mirroring `src/`. |

@@ -4,6 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveDataframeQueryTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-query.tool.js';
@@ -89,6 +90,29 @@ describe('fedreserveDataframeQueryTool', () => {
 
     expect(result.registered_as).toBe('df_XYZ99_PQR77');
     expect(result.expires_at).toBe('2026-05-22T10:00:00.000Z');
+  });
+
+  it('guides callers to choose a fresh name when registration collides', async () => {
+    mockQuery.mockRejectedValueOnce(
+      new McpError(JsonRpcErrorCode.ValidationError, 'Drop it before reusing the name.', {
+        reason: 'register_as_clash',
+        tableName: 'my_table',
+      }),
+    );
+    const result = await runToolContract(fedreserveDataframeQueryTool, {
+      sql: 'SELECT 1',
+      register_as: 'my_table',
+    });
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        data: {
+          reason: 'register_as_clash',
+          tableName: 'my_table',
+          recovery: { hint: expect.stringContaining('different') },
+        },
+      },
+    });
+    expect(JSON.stringify(result.content)).not.toContain('Drop it');
   });
 
   it('throws canvas_unavailable when bridge not configured', async () => {

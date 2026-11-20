@@ -8,7 +8,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { getCanvasBridge } from '@/services/canvas-bridge/canvas-bridge.js';
 
@@ -19,6 +19,12 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   errors: [
+    {
+      reason: 'register_as_clash',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A table already uses the requested register_as name.',
+      recovery: 'Choose a different register_as name.',
+    },
     {
       reason: 'canvas_unavailable',
       code: JsonRpcErrorCode.ServiceUnavailable,
@@ -39,7 +45,7 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       .string()
       .optional()
       .describe(
-        'Persist the result as a new dataframe under this name (df_XXXXX_XXXXX format). Gets a fresh TTL independent of source tables. Use to chain analyses without re-running the source SQL.',
+        'Persist the result under an unused SQL identifier, such as my_table. Use up to 63 ASCII letters, digits, or underscores, starting with a letter or underscore, and avoid reserved names. The result gets its own TTL.',
       ),
     preview: z
       .number()
@@ -98,13 +104,26 @@ export const fedreserveDataframeQueryTool = tool('fedreserve_dataframe_query', {
       throw ctx.fail('canvas_unavailable', 'DataCanvas is not configured on this server.');
     }
 
-    const { result, meta } = await bridge.query(ctx, input.sql, {
-      ...(input.register_as !== undefined && { registerAs: input.register_as }),
-      ...(input.preview !== undefined && { preview: input.preview }),
-      rowLimit: input.row_limit,
-      sourceTool: 'fedreserve_dataframe_query',
-      queryParams: { sql: input.sql },
-    });
+    const { result, meta } = await bridge
+      .query(ctx, input.sql, {
+        ...(input.register_as !== undefined && { registerAs: input.register_as }),
+        ...(input.preview !== undefined && { preview: input.preview }),
+        rowLimit: input.row_limit,
+        sourceTool: 'fedreserve_dataframe_query',
+        queryParams: { sql: input.sql },
+      })
+      .catch((error: unknown) => {
+        ctx.signal.throwIfAborted();
+        if (error instanceof McpError && error.data?.reason === 'register_as_clash') {
+          throw ctx.fail(
+            'register_as_clash',
+            `A canvas table named "${input.register_as}" already exists.`,
+            error.data,
+            { cause: error },
+          );
+        }
+        throw error;
+      });
 
     ctx.log.info('Dataframe query executed', {
       rowCount: result.rowCount,

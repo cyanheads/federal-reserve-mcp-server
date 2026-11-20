@@ -4,7 +4,7 @@
  */
 
 import type { HandlerContext, ReasonOf } from '@cyanheads/mcp-ts-core';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fedreserveDataframeDescribeTool } from '@/mcp-server/tools/definitions/fedreserve-dataframe-describe.tool.js';
 
@@ -61,6 +61,13 @@ describe('fedreserveDataframeDescribeTool', () => {
     const result = await fedreserveDataframeDescribeTool.handler(input, ctx);
 
     expect(result.dataframes).toHaveLength(0);
+  });
+
+  it('names a missing filtered dataframe and suggests listing active tables', async () => {
+    mockDescribe.mockResolvedValueOnce([]);
+    const result = await runToolContract(fedreserveDataframeDescribeTool, { name: 'my_table' });
+    expect(result.structuredContent).toMatchObject({ dataframes: [], missing_name: 'my_table' });
+    expect(JSON.stringify(result.content)).toContain('Omit name');
   });
 
   it('format shows table name, row count, and columns', () => {

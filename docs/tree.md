@@ -1,6 +1,6 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-11-11 09:33:01
+Generated on: 2026-11-20 22:35:30
 
 ```text
 federal-reserve-mcp-server/
@@ -160,6 +160,7 @@ federal-reserve-mcp-server/
 │   │       │   ├── fedreserve-get-observations.tool.ts
 │   │       │   ├── fedreserve-get-release.tool.ts
 │   │       │   ├── fedreserve-get-series.tool.ts
+│   │       │   ├── fedreserve-list-release-dates.tool.ts
 │   │       │   └── fedreserve-search-series.tool.ts
 │   │       └── prepare-series-batch.ts
 │   ├── services/
@@ -189,6 +190,7 @@ federal-reserve-mcp-server/
 │       ├── fedreserve-get-observations.tool.test.ts
 │       ├── fedreserve-get-release.tool.test.ts
 │       ├── fedreserve-get-series.tool.test.ts
+│       ├── fedreserve-list-release-dates.tool.test.ts
 │       └── fedreserve-search-series.tool.test.ts
 ├── .dockerignore
 ├── .env.example

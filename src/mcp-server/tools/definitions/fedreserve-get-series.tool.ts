@@ -1,18 +1,19 @@
 /**
  * @fileoverview Retrieve metadata for one or more FRED series — title, units,
- * frequency, seasonal adjustment, observation range, popularity, and notes.
+ * frequency, seasonal adjustment, observation range, popularity, and optional
+ * notes, tags, and release mapping.
  * Returns partial success when some IDs fail.
  * @module mcp-server/tools/definitions/fedreserve-get-series
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { internalError, JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
-import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { prepareSeriesBatch } from '@/mcp-server/tools/prepare-series-batch.js';
 import { FredDomainError } from '@/services/fred/fred-error.js';
 import { getFredApiService } from '@/services/fred/fred-service.js';
 
-const OPTIONAL_RELEASE_ERRORS = new Set([
+const OPTIONAL_LOOKUP_ERRORS = new Set([
   JsonRpcErrorCode.NotFound,
   JsonRpcErrorCode.ServiceUnavailable,
   JsonRpcErrorCode.RateLimited,
@@ -32,7 +33,14 @@ const SeriesMetaSchema = z.object({
   observation_start: z.string().optional().describe('Earliest available observation date.'),
   observation_end: z.string().optional().describe('Latest available observation date.'),
   popularity: z.number().optional().describe('Popularity score (0–100) when provided.'),
-  notes: z.string().optional().describe('Free-text notes from FRED when provided.'),
+  notes: z
+    .string()
+    .optional()
+    .describe('Full FRED notes when include_notes is true and notes exist.'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe('Exact FRED tag names when include_tags is true and the lookup succeeds.'),
   release: z
     .object({
       id: z.number().describe('Release ID accepted by fedreserve_get_release.'),
@@ -46,12 +54,19 @@ const SeriesReleaseEnvelope = z.object({
   releases: z.array(SeriesMetaSchema.shape.release.unwrap()),
 });
 
+function optionalLookupResult<T>(result: PromiseSettledResult<T>): T | undefined {
+  if (result.status === 'fulfilled') return result.value;
+  const error: unknown = result.reason;
+  if (!(error instanceof McpError) || !OPTIONAL_LOOKUP_ERRORS.has(error.code)) throw error;
+  return undefined;
+}
+
 /** Build the advertised batch limit from the startup configuration. */
 export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
   return tool('fedreserve_get_series', {
     title: 'Get FRED Series Metadata',
     description:
-      'Retrieve FRED series metadata: title, units, frequency, seasonal adjustment, range, popularity, and notes. Process up to 50 normalized IDs per call; deferred_ids lists any remaining IDs to request next. Set include_release to resolve the release ID for fedreserve_get_release. Returns partial success when some IDs fail.',
+      'Retrieve FRED series metadata: title, units, frequency, seasonal adjustment, range, and popularity. Process up to 50 normalized IDs per call; deferred_ids lists remaining IDs. Request notes for methodology and source terms, tags for fedreserve_search_series, or release mapping for fedreserve_get_release. Returns partial success when some IDs fail.',
     annotations: { readOnlyHint: true, openWorldHint: true },
 
     errors: [
@@ -98,6 +113,18 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
         .describe(
           'Resolve each successful series to its release ID and name; adds at most one bounded request per series.',
         ),
+      include_notes: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Include the full FRED series notes when available. Request these before reusing data to review methodology, source codes, citations, and licensing terms.',
+        ),
+      include_tags: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Return exact FRED tag names for the tag_names filter on fedreserve_search_series; adds at most one bounded request per resolved series.',
+        ),
     }),
 
     /** FRED's own `/series` parameter is the singular `series_id`. */
@@ -124,7 +151,10 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
     }),
 
     enrichment: {
-      notice: z.string().optional().describe('IDs whose optional release mapping is unavailable.'),
+      notice: z
+        .string()
+        .optional()
+        .describe('Series IDs whose optional release or tag lookups are unavailable.'),
     },
 
     async handler(input, ctx) {
@@ -168,7 +198,7 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
           failed.push({ id, error });
           continue;
         }
-        const notes = raw.notes?.trim();
+        const notes = input.include_notes ? raw.notes : undefined;
         series.push({
           id: raw.id,
           title: raw.title ?? '',
@@ -179,7 +209,7 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
           ...(raw.observation_start && { observation_start: raw.observation_start }),
           ...(raw.observation_end && { observation_end: raw.observation_end }),
           ...(typeof raw.popularity === 'number' && { popularity: raw.popularity }),
-          ...(notes && { notes }),
+          ...(notes?.trim() && { notes }),
         });
       }
 
@@ -197,31 +227,45 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
         );
       }
 
-      if (input.include_release) {
-        const releases = await Promise.allSettled(
-          series.map((entry) => fred.getSeriesRelease(entry.id, ctx)),
+      if (input.include_release || input.include_tags) {
+        const lookups = await Promise.all(
+          series.map(async (entry) => ({
+            entry,
+            results: await Promise.allSettled([
+              input.include_release ? fred.getSeriesRelease(entry.id, ctx) : undefined,
+              input.include_tags ? fred.getSeriesTags(entry.id, ctx) : undefined,
+            ]),
+          })),
         );
         ctx.signal.throwIfAborted();
-        const unavailable: string[] = [];
-        for (const [index, entry] of series.entries()) {
-          const response = releases[index];
-          if (!response) throw internalError('Missing settled series-release lookup.');
-          if (response.status === 'rejected') {
-            const error: unknown = response.reason;
-            if (!(error instanceof McpError) || !OPTIONAL_RELEASE_ERRORS.has(error.code))
-              throw error;
+        const releasesUnavailable: string[] = [];
+        const tagsUnavailable: string[] = [];
+        for (const {
+          entry,
+          results: [releaseResult, tagResult],
+        } of lookups) {
+          if (input.include_release) {
+            const release = SeriesReleaseEnvelope.safeParse(optionalLookupResult(releaseResult))
+              .data?.releases[0];
+            if (release) entry.release = release;
+            else releasesUnavailable.push(entry.id);
           }
-          const release =
-            response.status === 'fulfilled'
-              ? SeriesReleaseEnvelope.safeParse(response.value).data?.releases[0]
-              : undefined;
-          if (release) entry.release = { id: release.id, name: release.name };
-          else unavailable.push(entry.id);
+          if (input.include_tags) {
+            const tags = optionalLookupResult(tagResult);
+            if (tags) entry.tags = tags;
+            else tagsUnavailable.push(entry.id);
+          }
         }
-        if (unavailable.length > 0)
-          ctx.enrich.notice(
-            `Release mapping unavailable for ${unavailable.join(', ')}; series metadata is complete.`,
+        const notices: string[] = [];
+        if (releasesUnavailable.length > 0)
+          notices.push(
+            `Release mapping unavailable for ${releasesUnavailable.join(', ')}; series metadata is complete.`,
           );
+        if (tagsUnavailable.length > 0)
+          notices.push(
+            `Tags unavailable for ${tagsUnavailable.join(', ')}; series metadata is complete.`,
+          );
+        if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
       }
       return { series, failed, ...(deferredIds.length > 0 && { deferred_ids: deferredIds }) };
     },
@@ -242,7 +286,18 @@ export function buildFedreserveGetSeriesTool(clampLimits: boolean) {
         lines.push(
           `**Last updated:** ${escapeMarkdownInline(s.last_updated)}${s.popularity !== undefined ? ` | **Popularity:** ${s.popularity}` : ''}`,
         );
-        if (s.notes) lines.push(`> ${escapeMarkdownInline(s.notes)}`);
+        if (s.notes) {
+          // CommonMark normalizes carriage returns and replaces NULs.
+          if (s.notes.includes('\r') || s.notes.includes('\0')) {
+            lines.push('**Notes:**', markdown().codeBlock(JSON.stringify(s.notes), 'json').build());
+          } else {
+            lines.push(`> ${escapeMarkdownInline(s.notes)}`);
+          }
+        }
+        if (s.tags) {
+          if (s.tags.length === 0) lines.push('**Tags:** None.');
+          else lines.push('**Tags:**', ...s.tags.map((tag) => `- ${escapeMarkdownInline(tag)}`));
+        }
         if (s.release)
           lines.push(
             `**Release:** ${s.release.id} — ${escapeMarkdownInline(s.release.name)}. Use this ID with fedreserve_get_release.`,

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Navigate the FRED category tree. Returns child categories and
- * a paginated series list when viewing a leaf. Omit category_id to start at the
+ * a page of series attached directly to the category. Omit category_id to start at the
  * root (ID 0).
  * @module mcp-server/tools/definitions/fedreserve-browse-categories
  */
@@ -16,7 +16,7 @@ const DEFAULT_SERIES_LIMIT = 10;
 export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories', {
   title: 'Browse FRED Categories',
   description:
-    'Navigate the FRED category tree. Returns the current category and its child categories. A leaf category returns a paginated list of its series in descending popularity order. Omit category_id to start at the root (ID 0).',
+    'Navigate the FRED category tree. Returns the current category, its children, and a page of directly attached series in descending popularity order. Omit category_id to start at the root (ID 0).',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   errors: [
@@ -41,13 +41,13 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
       .min(1)
       .max(1000)
       .optional()
-      .describe('Maximum series on a leaf category page (default 10).'),
+      .describe('Maximum series on a category page (default 10).'),
     series_offset: z
       .number()
       .int()
       .min(0)
       .optional()
-      .describe('Offset for the series page of a leaf category (default 0).'),
+      .describe('Offset within the category’s direct series (default 0).'),
   }),
 
   output: z.object({
@@ -77,19 +77,20 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
             title: z.string().describe('Series title.'),
             units: z.string().describe('Units of measurement.'),
             frequency: z.string().describe('Data frequency.'),
+            seasonal_adjustment: z
+              .string()
+              .optional()
+              .describe('Seasonal adjustment reported by FRED.'),
+            last_updated: z.string().optional().describe('Last update timestamp from FRED.'),
           })
-          .describe('One series in this leaf category.'),
+          .describe('One series attached directly to the category.'),
       )
-      .optional()
-      .describe('Page of series ordered by descending popularity. Returned for leaf categories.'),
-    series_count: z
-      .number()
-      .optional()
-      .describe('Total series in a leaf category before pagination.'),
+      .describe('Page of direct series ordered by descending popularity.'),
+    series_count: z.number().describe('Total direct series before pagination.'),
   }),
 
   enrichment: {
-    totalCount: z.number().optional().describe('Total series count when browsing a leaf category.'),
+    totalCount: z.number().optional().describe('Total direct series before pagination.'),
   },
 
   handler(input, ctx) {
@@ -119,8 +120,6 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
             },
             children: (childrenResp.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
           };
-          if (result.children.length > 0) return result;
-
           const seriesResp = await fred.getCategorySeries(
             {
               category_id,
@@ -139,6 +138,8 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
               title: s.title ?? '',
               units: s.units ?? '',
               frequency: s.frequency ?? '',
+              seasonal_adjustment: s.seasonal_adjustment,
+              last_updated: s.last_updated,
             })),
           };
         } catch (err) {
@@ -178,13 +179,13 @@ export const fedreserveBrowseCategoriesTool = tool('fedreserve_browse_categories
       lines.push('_Leaf category — no subcategories._');
     }
 
-    const series = result.sample_series ?? [];
-    if (result.series_count !== undefined) {
-      lines.push('', `**Series (${series.length} of ${result.series_count}):**`);
-    }
-    for (const s of series) {
+    lines.push('', `**Series (${result.sample_series.length} of ${result.series_count}):**`);
+    for (const s of result.sample_series) {
+      const details = [escapeMarkdownInline(s.units), escapeMarkdownInline(s.frequency)];
+      if (s.seasonal_adjustment) details.push(escapeMarkdownInline(s.seasonal_adjustment));
+      if (s.last_updated) details.push(`updated ${escapeMarkdownInline(s.last_updated)}`);
       lines.push(
-        `- **${escapeMarkdownInline(s.id)}**: ${escapeMarkdownInline(s.title)} (${escapeMarkdownInline(s.units)}, ${escapeMarkdownInline(s.frequency)})`,
+        `- **${escapeMarkdownInline(s.id)}**: ${escapeMarkdownInline(s.title)} (${details.join(', ')})`,
       );
     }
 

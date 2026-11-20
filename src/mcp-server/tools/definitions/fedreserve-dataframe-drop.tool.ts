@@ -33,7 +33,12 @@ export const fedreserveDataframeDropToolDef = tool('fedreserve_dataframe_drop', 
   ],
 
   input: z.object({
-    name: z.string().min(1).describe('Canvas table name to drop (df_XXXXX_XXXXX format).'),
+    name: z
+      .string()
+      .min(1)
+      .describe(
+        'Exact table name from fedreserve_dataframe_describe, including caller-selected names.',
+      ),
   }),
 
   output: z.object({

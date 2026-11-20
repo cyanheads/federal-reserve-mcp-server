@@ -278,7 +278,7 @@ describe('fedreserveGetReleaseTool', () => {
         message: 'The release does not exist.',
         data: {
           reason: 'release_not_found',
-          recovery: { hint: expect.stringContaining('release_id') },
+          recovery: { hint: expect.stringContaining('include_release') },
         },
       },
     });
@@ -368,6 +368,7 @@ describe('fedreserveGetReleaseTool', () => {
     });
     for (const alternative of alternatives)
       expect(JSON.stringify(result.content)).toContain(alternative.name);
+    expect(JSON.stringify(result.content)).not.toContain('&#32;');
     expect(JSON.stringify(result.content)).toContain('Recovery:');
     expect(mockGetRelease).not.toHaveBeenCalled();
   });
