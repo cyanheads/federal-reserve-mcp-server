@@ -1,6 +1,6 @@
 # federal-reserve-mcp-server - Directory Structure
 
-Generated on: 2026-11-20 22:35:30
+Generated on: 2026-11-20 22:40:59
 
 ```text
 federal-reserve-mcp-server/
@@ -28,6 +28,7 @@ federal-reserve-mcp-server/
 │   ├── 0.2.x/
 │   ├── 0.3.x/
 │   ├── 0.4.x/
+│   ├── 0.5.x/
 │   └── template.md
 ├── docs/
 │   ├── design.md

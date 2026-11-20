@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.5.0](changelog/0.5.x/0.5.0.md) — 2026-11-20 · ⚠️ Breaking
+
+Browse the FRED release calendar and page inline observations without skipped rows.
+
 ## [0.4.0](changelog/0.4.x/0.4.0.md) — 2026-11-11 · ⚠️ Breaking
 
 Page FRED observations, discover the releases behind series, and query typed DataCanvas results.
